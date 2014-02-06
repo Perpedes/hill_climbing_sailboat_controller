@@ -29,6 +29,8 @@
 #define angle_lim 	5*PI/180	// [degrees] threshold for jibing. The heading has to be 5 degrees close to desired Heading.
 #define ROLL_LIMIT 	15		// [degrees] Threshold for an automatic emergency sail release
 
+#define dtime		2*60.0		// [seconds] Duty Cycle Period
+
 #define INTEGRATOR_MAX	20		// [degrees], influence of the integrator
 #define RATEOFTURN_MAX	36		// [degrees/second]
 #define dHEADING_MAX	10		// [degrees] deviation, before rudder PI acts
@@ -78,7 +80,7 @@ float Point_Start_Lat=0, Point_Start_Lon=0, Point_End_Lat=0, Point_End_Lon=0;
 int   Rudder_Desired_Angle=0,   Manual_Control_Rudder=0, Rudder_Feedback=0;
 int   Sail_Desired_Position=0,  Manual_Control_Sail=0,   Sail_Feedback=0;
 int   Navigation_System=0, Prev_Navigation_System=0, Manual_Control=0, Simulation=1;
-int   logEntry=0, fa_debug=0, debug=0, debug2=0, debug3=0, debug4=1, debug_hc=1;
+int   logEntry=0, fa_debug=0, debug=0, debug2=0, debug3=0, debug4=1, debug5=1, debug_hc=0;
 char  logfile1[50],logfile2[50],logfile3[50];
 
 void initfiles();
@@ -116,7 +118,7 @@ void jibe_pass_fcn();
 
 
 // sail algorithm
-float act_history=MAX_DUTY_CYCLE;		// debet credit!...?
+float act_history[240]; //act_history[dtime*SEC];		// Duty Cycle Vector
 	// sail hill climbing
 int sail_hc_periods=0, sail_hc_direction=1, sail_hc_val=0;
 float sail_hc_ACC_V=0, sail_hc_OLD_V=0, sail_hc_MEAN_V=0;
@@ -143,6 +145,13 @@ float v_old_headsl=20, u_old_headsl=13, u_headsl=180;
 int counter_headsl = 0;
 void heading_hc_slope_controller();
 int hc_headsl=0;
+
+// changing heading in steps for experimental data acquisition
+int stepheadON=1, counter_stephead=0, steps, dirsteps=1;
+const int apparent[23]= {180, 180, 160, 140, 120, 100, 90, 80, 70, 60, 65, 55, 50, 45, 40, 35, 30, 25, 20, 15, 10, 5, 0};
+float headstep=180;//Wind_Angle+180;		// Initially on downwind course
+void stepheading();
+
 
 //waypoints
 int nwaypoints=0, current_waypoint=0;
@@ -180,12 +189,14 @@ int main(int argc, char ** argv) {
 			{
 				read_weather_station();			// Update sensors data
 				read_sail_position();			// Read sail actuator feedback
-				guidance();				// Calculate the desired heading
+				meanwind();
+				//guidance();				// Calculate the desired heading
 				rudder_pid_controller();		// Calculate the desired rudder position
 				if(hc_sail == 0) sail_controller();			// Execute the default sail controller
 				if(hc_sail) sail_hc_controller();			// Execute the sail hillclimbing algorithm
 				if(hc_head) heading_hc_controller();		// Execute the heading hillclimbing algorithm
 				if(hc_headsl) heading_hc_slope_controller();
+				if(stepheadON) stepheading();
 
 				if(Simulation) simulate_sailing();
 
@@ -387,7 +398,7 @@ void guidance()
 	float x, y, theta_wind;
 	float _Complex Geo_X, Geo_X0, Geo_X_T;
 	char boundaries[200];
-	meanwind();
+
 
 	//if (debug) printf("theta_d: %4.1f [deg]\n",theta_d*180/PI);
 
@@ -680,6 +691,18 @@ int sign(float val){
 }
 
 
+/*
+ *		Sign function finding pos or neg value
+ */
+int signfcn(float in)
+{
+	int out;
+	if (in >= 0) { out = 1; }
+	else { out = -1; }
+	return out;
+}
+
+
 
 void performManeuver()
 {
@@ -814,6 +837,7 @@ void rudder_pid_controller() {
 	dHeading = Guidance_Heading - Heading; // in degrees
 	if (hc_head) { dHeading = u_head - Heading;} 	// Steering after hill climbing controller
 	if (hc_headsl) { dHeading = u_headsl - Heading;} 	// Steering after hill climbing controller
+	if (stepheadON) { dHeading = headstep - Heading;} 	// Using the step heading algorithm
 
 	// Singularity translation
 	dHeading = dHeading*PI/180;
@@ -868,6 +892,7 @@ void sail_controller() {
 
 	float C=0, C_zero=0; 		// sheet lengths
 	float BWA=0, theta_sail=0; 	// angle of wind according to heading, desired sail angle
+//	float duty=0;
 
 	float _Complex X_h, X_w;
 
@@ -938,10 +963,21 @@ void sail_controller() {
 	if (debug2) printf("Sail_Feedback: %d \n",Sail_Feedback);
 	
 	// Duty cycle observer
+/*	int n;
+//	static float V_angles[40];
 
-	if ( abs(Sail_Feedback-Sail_Desired_Position)>ACT_PRECISION ) { act_history += 1/SEC;}
-	if ( act_history>0 ) { act_history = act_history-MAX_DUTY_CYCLE/SEC; }
-	//if (debug4) printf("act_history: %.5f \n",act_history);
+//	for ( n=1; n<dtime*SEC; n++) V_angles[dtime*SEC-n] = V_angles[dtime*SEC-n-1];
+
+	if ( abs(Sail_Feedback-Sail_Desired_Position)>ACT_PRECISION ) { act_history[1] = 1;}
+	if ( act_history>0 ) { act_history[1] = 0;}
+	
+	for (i=0; i<dtime*SEC; i++)
+	   {
+		 duty = duty + act_history[i];
+	   }
+
+	duty = duty / dtime;
+*/	//if (debug4) printf("duty: %.5f \n",duty);
 	//if (debug4) printf("abs: %d \n",abs(Sail_Feedback-Sail_Desired_Position));
 }
 
@@ -1064,22 +1100,26 @@ void heading_hc_slope_controller()
 }
 
 
+
 /*
- *		Sign function finding pos or neg value
+ *		The stepheading function changes the heading in time steps.
+ *			Hence receiving well developed data for plots.
  */
-int signfcn(float in)
+void stepheading()
 {
-	int out;
-	if (in >= 0) { out = 1; }
-	else { out = -1; }
-	return out;
+	if (counter_stephead==30*SEC) { counter_stephead=0; steps++; }
+	else counter_stephead++;
+
+	if (steps >= 22) { steps=0; if (debug5) printf("Task Completed\n"); }
+	if (debug5) printf("Counter_stephead: %d \n", counter_stephead);
+	headstep = theta_mean_wind + dirsteps*apparent[steps];
 }
 
 /*
  *	Mean wind function, finding the mean wind. 
  */
 void meanwind() {
-	int m = meantime*SEC-1, n=0;
+	int m = meantime*SEC, n=0;
 	float _Complex V_WIND=0;
 	static float V_angles[40];		//[m+1];
 
