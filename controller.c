@@ -1,5 +1,3 @@
-// What's a 'static float' compared to a 'float'? These terms are used for V_angles.
-
 /* 
  *	SAILBOAT-CONTROLLER
  *
@@ -19,7 +17,7 @@
 #define SEC		4.0		// number of loops per second
 #define PI 		3.14159265
 
-#define HeadingControl  3		// Choosing the heading algorithm
+#define HeadingControl  1		// Choosing the heading algorithm
 #define hc_sail		0
 
 #define TACKINGRANGE 	100		// meters
@@ -82,7 +80,7 @@ float Rate=0, Heading=270, Deviation=0, Variation=0, Yaw=0, Pitch=0, Roll=0;
 float Latitude=0, Longitude=0, COG=0, SOG=0, Wind_Speed=0, Wind_Angle=0;
 float Point_Start_Lat=0, Point_Start_Lon=0, Point_End_Lat=0, Point_End_Lon=0;
 int   Rudder_Desired_Angle=0,   Manual_Control_Rudder=0, Rudder_Feedback=0;
-int   Sail_Desired_Position=0,  Manual_Control_Sail=0,   Sail_Feedback=0;
+int   Sail_Desired_Position=0,  Manual_Control_Sail=0,   Sail_Feedback=0, desACTpos=0;
 int   Navigation_System=0, Prev_Navigation_System=0, Manual_Control=0, Simulation=1;
 int   logEntry=0, fa_debug=0, debug=0, debug2=0, debug3=0, debug4=1, debug5=0, debug_hc=0;
 char  logfile1[50],logfile2[50],logfile3[50];
@@ -127,7 +125,8 @@ void heading_hc_controller();
 void stepheading();
 void sail_hc_controller();
 
-
+// move_sail
+int actStop = 0;
 
 // sail algorithm
 static float Platzhalter=0; //act_history[240];		// Duty Cycle Vector
@@ -160,9 +159,6 @@ int stepheadON=0, counter_stephead=0, steps, dirsteps=1;
 const int apparent[23]= {180, 180, 160, 140, 120, 100, 90, 80, 70, 60, 65, 55, 50, 45, 40, 35, 30, 25, 20, 15, 10, 5, 0};
 float headstep=180;//Wind_Angle+180;		// Initially on downwind course
 
-//move_sail
-int actStop;
-
 //waypoints
 int nwaypoints=0, current_waypoint=0;
 Point AreaWaypoints[1000], Waypoints[1000];
@@ -189,7 +185,7 @@ int main(int argc, char ** argv) {
 		if (Manual_Control) {
 
 			move_rudder(Manual_Control_Rudder);		// Move the rudder to user position
-			move_sail(Manual_Control_Sail);			// Move the main sail to user position
+			desACTpos = Manual_Control_Sail;		// Move the main sail to user position
 			read_weather_station_essential();
 
 		} else {
@@ -216,6 +212,7 @@ int main(int argc, char ** argv) {
 						break;
 				}
 				rudder_pid_controller();		// Calculate the desired rudder position
+				move_sail(desACTpos);
 					
 				if(hc_sail) sail_hc_controller();			// Execute the sail hillclimbing algorithm
 				else sail_controller();					// Execute the default sail controller
@@ -954,7 +951,7 @@ void sail_controller() {
 	C = sqrt( SCLength*SCLength + BoomLength*BoomLength -2*SCLength*BoomLength*cos(theta_sail) + SCHeight*SCHeight);
 	C_zero = sqrt( SCLength*SCLength + BoomLength*BoomLength -2*SCLength*BoomLength*cos(0) + SCHeight*SCHeight);
 
-	// Assuming the actuator to be outside at ACT_MAX and in at 0:
+	// Assuming the actuator to be out at ACT_MAX and in at 0:
 	//(C-C_zero)=0 -> sail tight when C=C_zero . ACT_MAX/500 is the ratio between ticks and stroke. 1000[mm]/3 is a unit change + 
 	Sail_Desired_Position = round( (C-C_zero)/3*ACT_MAX/strokelength ); 
 	if ( Sail_Desired_Position > ACT_MAX ) Sail_Desired_Position=ACT_MAX; 
@@ -964,8 +961,8 @@ void sail_controller() {
 	if(fabs(Roll*3.26)>ROLL_LIMIT) // we multiply by 3.26, to transform the input to degrees.
 	{ 
                 // Start Loosening the sail
-		move_sail(ACT_MAX);                
-		roll_counter=0;
+		desACTpos = ACT_MAX;      
+		roll_counter = 0;
 		// if (debug) printf("max roll reached. \n" );
 	} 
 	else
@@ -978,14 +975,14 @@ void sail_controller() {
 	if (actIn) 
 	{
 		// Start Tightening the sail
-		move_sail(0);
+		desACTpos = 0;
 	}
 	else
 	{
 		// sail tuning according to wind
 		if(roll_counter > 5*SEC && (fabs(Sail_Desired_Position-Sail_Feedback)>SAIL_LIMIT || tune_counter>10*SEC) )
 		{
-			move_sail(Sail_Desired_Position);
+			desACTpos = Sail_Desired_Position;
 			tune_counter=0;
 			if (debug2) printf("- - - Sail tuning - - -\n");
 		}
@@ -1031,7 +1028,7 @@ void sail_hc_controller() {
 		v_old_sail = v_sail;
 		u_old_sail = u_sail;
 		u_sail = u_sail + k_sail*news;
-		move_sail(u_sail);
+		desACTpos = u_sail;
 		counter_sail = 0;
 	}
 	else { counter_sail = counter_sail + 1; }
@@ -1140,7 +1137,7 @@ void stepheading()
 void meanwind() {
 	int m = meantime*SEC, n=0;
 	float _Complex V_WIND=0;
-	static float V_angles[40];		//[m+1];
+	static float V_angles[40];		//[m+1]; static float?
 
 	for ( n=0; n<m; n++) V_angles[m-n] = V_angles[m-n-1];
 	V_angles[0] = Wind_Angle;
@@ -1499,22 +1496,25 @@ void move_rudder(int angle) {
  *	Write the desired angle to a file [Navigation_System_Sail] to be handled by another process 
  */
 void move_sail(int position) {
-	float duty=0;
+
 
 	// Duty cycle observer
-	int n, i, dutysum=0;
-	int m=dtime*SEC;
-	static int act_history[240];
-	for ( n=0; n<m; n++) act_history[m-n] = act_history[m-n-1];
+	int n, i;
+	int dutysum=0;
+	int m=60; 	//dtime*SEC;
+	static int act_history[60]={0};
+	float mm=m;
 
-	if ( abs(Sail_Feedback-Sail_Desired_Position)>ACT_PRECISION && actStop==0) { act_history[0] = 1;}
+	float duty=0;
+	for (n=0; n<m; n++) act_history[m-n] = act_history[m-n-1];
+
+	if ( abs(Sail_Feedback-Sail_Desired_Position)>ACT_PRECISION ) { act_history[0] = 1;}
 	else { act_history[0] = 0;}
 	
-	for (i=0; i<m; i++) dutysum = dutysum + act_history[i];
-	duty = dutysum / m;
+	for (i=0; i<m; i++) {dutysum = dutysum + act_history[i];}
+
+	duty = dutysum / mm;
 	if (duty > MAX_DUTY_CYCLE) actStop=1;
-	
-	if (debug4) printf("act_history[0]: %d \n",act_history[0]);
 
 	if (actStop==0)
 	{
@@ -1526,10 +1526,11 @@ void move_sail(int position) {
 		if (duty <= 0.1) { actStop=0; } // When a low duty cycle is reached, the actStop is reset.
 	}
 
-	if (debug4) printf("abs: %d \n",abs(Sail_Feedback-Sail_Desired_Position));	
+	if (debug4) printf("Sail_Feedback - Sail_Des_Pos= abs: %d - %d = %d \n",Sail_Feedback, Sail_Desired_Position, abs(Sail_Feedback-Sail_Desired_Position));	
 	if (debug4) printf("dutysum: %d \n",dutysum);
 	if (debug4) printf("duty: %f \n",duty);
 	if (debug4) printf("actStop: %d \n",actStop);
+	//if (debug4) printf("** end move sail");
 }
 
 
