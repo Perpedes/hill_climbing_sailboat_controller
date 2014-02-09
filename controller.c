@@ -17,9 +17,6 @@
 #define SEC		4.0		// number of loops per second
 #define PI 		3.14159265
 
-#define HeadingControl  1		// Choosing the heading algorithm
-#define hc_sail		0
-
 #define TACKINGRANGE 	100		// meters
 #define RADIUSACCEPTED	5		// meters
 #define CONVLON		64078		// meters per degree
@@ -115,7 +112,10 @@ int   roll_counter = 0, tune_counter = 0;
 int   jibe_status = 1, actIn;
 
 int sail_state=1, heading_state=1;
-int ext_heading_state, ext_sail_state;
+int ext_heading_state, ext_sail_state, ext_steptime, ext_stepsize, ext_des_slope;
+int ext_vLOS, ext_DIR, ext_stepreset, ext_des_heading, ext_sail_stepsize, ext_act_pos;
+int HeadingControl=1;		// Choosing the heading algorithm
+int hc_sail=0;
 
 void guidance();
 void findAngle();
@@ -1139,7 +1139,7 @@ void stepheading()
 
 	if (steps >= 22) { steps=0; if (debug5) printf("Task Completed\n"); }
 //	if (stepreset) steps=0; stepreset=0;
-	if (debug5) printf("Counter_stephead: %d \n", counter_stephead);
+	//if (debug5) printf("Counter_stephead: %d \n", counter_stephead);
 	headstep = theta_mean_wind + dirsteps*apparent[steps];
 }
 
@@ -1360,26 +1360,83 @@ void read_target_point() {
 void read_external_variables() {
 
 	// declare temporary variables
-	int tmp_sail_state, tmp_heading_state;
-
+	int tmp_sail_state, tmp_heading_state, tmp_steptime, tmp_stepsize, tmp_des_slope;
+	int tmp_vLOS, tmp_DIR, tmp_stepreset, tmp_des_heading, tmp_sail_stepsize, tmp_act_pos;
+	
 	// assign values to temporary values
 	tmp_sail_state = ext_sail_state;
 	tmp_heading_state = ext_heading_state;
+	tmp_steptime = ext_steptime;
+	tmp_stepsize = ext_stepsize;
+
+	tmp_des_slope = ext_des_slope;
+	tmp_vLOS = ext_vLOS;
+	tmp_DIR = ext_DIR;
+	tmp_stepreset = ext_stepreset;
+	tmp_des_heading = ext_des_heading;
+	tmp_sail_stepsize = ext_sail_stepsize;
+	tmp_act_pos = ext_act_pos;
 
 	// read from files
 	file = fopen("/tmp/sailboat/ext_sail_state", "r");
 	if (file != NULL) { fscanf(file, "%d", &ext_sail_state); fclose(file); }
 	file = fopen("/tmp/sailboat/ext_heading_state", "r");
 	if (file != NULL) { fscanf(file, "%d", &ext_heading_state); fclose(file); }
-	
+	file = fopen("/tmp/sailboat/ext_steptime", "r");
+	if (file != NULL) { fscanf(file, "%d", &ext_steptime); fclose(file); }
+	file = fopen("/tmp/sailboat/ext_stepsize", "r");
+	if (file != NULL) { fscanf(file, "%d", &ext_stepsize); fclose(file); }
+	file = fopen("/tmp/sailboat/ext_des_slope", "r");
+	if (file != NULL) { fscanf(file, "%d", &ext_des_slope); fclose(file); }
+	file = fopen("/tmp/sailboat/ext_vLOS", "r");
+	if (file != NULL) { fscanf(file, "%d", &ext_vLOS); fclose(file); }
+	file = fopen("/tmp/sailboat/ext_DIR", "r");
+	if (file != NULL) { fscanf(file, "%d", &ext_DIR); fclose(file); }
+	file = fopen("/tmp/sailboat/ext_stepreset", "r");
+	if (file != NULL) { fscanf(file, "%d", &ext_stepreset); fclose(file); }
+	file = fopen("/tmp/sailboat/ext_des_heading", "r");
+	if (file != NULL) { fscanf(file, "%d", &ext_des_heading); fclose(file); }
+	file = fopen("/tmp/sailboat/ext_sail_stepsize", "r");
+	if (file != NULL) { fscanf(file, "%d", &ext_sail_stepsize); fclose(file); }
+	file = fopen("/tmp/sailboat/ext_act_pos", "r");
+	if (file != NULL) { fscanf(file, "%d", &ext_act_pos); fclose(file); }
+
+
 	
 	// update variables in the algorithm only when something changes in files
 	if (tmp_sail_state != ext_sail_state) {	
-		//tmp_sail_state = ext_sail_state; 
+		//sail_state = ext_sail_state; 
 		if(debug5) printf("current sail state: %d \n", ext_sail_state); }
 	if (tmp_heading_state != ext_heading_state) {
-		//tmp_heading_state = ext_heading_state; 
+		HeadingControl = ext_heading_state; 
 		if(debug5) printf("current heading state: %d \n", ext_heading_state); }
+	if (tmp_steptime != ext_steptime) {	
+		//steptime = ext_steptime; 
+		if(debug5) printf("current steptime: %d \n", ext_steptime); }
+	if (tmp_stepsize != ext_stepsize) {	
+		//stepsize = ext_stepsize; 
+		if(debug5) printf("current stepsize: %d \n", ext_stepsize); }
+	if (tmp_des_slope != ext_des_slope) {	
+		//stepsize = ext_des_slope; 
+		if(debug5) printf("current des_slope: %d \n", ext_des_slope); }
+	if (tmp_vLOS != ext_vLOS) {	
+		//vLOS = ext_vLOS; 
+		if(debug5) printf("current vLOS: %d \n", ext_vLOS); }
+	if (tmp_DIR != ext_DIR) {	
+		//DIR = ext_DIR; 
+		if(debug5) printf("current DIR: %d \n", ext_DIR); }
+	if (tmp_stepreset != ext_stepreset) {	
+		//stepreset = ext_stepreset; 
+		if(debug5) printf("current stepreset: %d \n", ext_stepreset); }
+	if (tmp_des_heading != ext_des_heading) {	
+		//des_heading = ext_des_heading; 
+		if(debug5) printf("current des_heading: %d \n", ext_des_heading); }
+	if (tmp_sail_stepsize != ext_sail_stepsize) {	
+		//sail_stepsize = ext_sail_stepsize; 
+		if(debug5) printf("current sail_stepsize: %d \n", ext_sail_stepsize); }
+	if (tmp_act_pos != ext_act_pos) {	
+		//act_pos = ext_act_pos; 
+		if(debug5) printf("current act_pos: %d \n", ext_act_pos); }
 }
 
 /*
@@ -1431,6 +1488,10 @@ void move_sail(int position) {
 	if (debug4) printf("duty: %f \n",duty);
 	if (debug4) printf("actStop: %d \n",actStop);
 	//if (debug4) printf("** end move sail");
+
+	// Write "duty" to file
+	//file = fopen("/tmp/sailboat/duty", "w");
+	//if (file != NULL) { fprintf(file, "%f", duty); fclose(file); Sail_Desired_Position=position;}
 }
 
 
