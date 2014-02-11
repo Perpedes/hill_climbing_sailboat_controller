@@ -48,7 +48,7 @@
 #define SAIL_OBS_TIME  20		// [seconds] observation time of the sail hillclimbing algoritm
 #define ACT_MAX		870		// [ticks] the max number of actuator ticks
 #define SAIL_LIMIT	150		// [ticks] max tolerated difference between desired and current actuator position
-#define MAX_DUTY_CYCLE 	0.3     	// [%] Datasheet max duty cycle
+#define MAX_DUTY_CYCLE 	0.6     	// [%] Datasheet max duty cycle
 #define ACT_PRECISION	10		// [ticks] how close the actuator gets to the Sail_Desired_Position
 
 #define k_sail 		20		// ticks // 
@@ -826,7 +826,7 @@ void 	jibe_pass_fcn() {
 	X_h = -sin(theta_b) + I*cos(theta_b);
 	X_pM = -sin(theta_pM_b) + I*cos(theta_pM_b);
 
-	if (debug) printf("Sail_Feedback: %d\n",Sail_Feedback);
+	if (debug5) printf("Sail_Feedback: %d\n",Sail_Feedback);
 
 	if ( cos(angle_lim) < (creal(X_h)*creal(X_pM) + cimag(X_h)*cimag(X_pM)) && jibe_status<5) // Here 'Sail_Feedback=0' means that the actuator is as short as possible, hence the sail is tight.
 	{	// When the heading approaches the desired heading and the sail is tight, the jibe is performed.
@@ -834,7 +834,7 @@ void 	jibe_pass_fcn() {
 		{
 		jibe_status++;
 		}
-		if ( actIn && Sail_Feedback<10 )
+		if ( actIn && Sail_Feedback<20 )
 		{
 		jibe_status++;
 		}
@@ -997,14 +997,15 @@ void sail_controller() {
 		{
 			desACTpos = Sail_Desired_Position;
 			tune_counter=0;
-			if (debug2) printf("- - - Sail tuning - - -\n");
+			//if (debug2) printf("- - - Sail tuning - - -\n");
 		}
 		else
 		{
 		tune_counter++;
 		}
 	}
-	if (debug2) printf("Sail_Feedback: %d \n",Sail_Feedback);
+	//if (debug2) printf("desACTpos: %d \n",desACTpos);
+	//if (debug2) printf("Sail_Feedback: %d \n",Sail_Feedback);
 }
 
 
@@ -1170,8 +1171,13 @@ void simulate_sailing() {
 
 	// update sail actuator position
 	int increment=SIM_ACT_INC/SEC;
-	if (Sail_Feedback > Sail_Desired_Position) Sail_Feedback-=increment; 
-	else {if(Sail_Feedback < Sail_Desired_Position)	{ Sail_Feedback+=increment; }}
+	int desACTpos_sim=0;
+
+	file = fopen("/tmp/sailboat/Navigation_System_Sail", "r");
+	if (file != NULL) { fscanf(file, "%d", &desACTpos_sim); fclose(file); }
+
+	if (Sail_Feedback > desACTpos_sim) Sail_Feedback-=increment; 
+	else {if(Sail_Feedback < desACTpos_sim)	{ Sail_Feedback+=increment; }}
 
 	// update boat position
 	v_poly = SIM_SOG; //(-((Heading-182)*5.6/360)*((Heading-182)*5.6/360)+SIM_SOG)*(-((Sail_Feedback-182)*5.6/360)*((Sail_Feedback-182)*5.6/360)+SIM_SOG)/8;
@@ -1181,7 +1187,7 @@ void simulate_sailing() {
 	Latitude=(float)SimLat;
 	Longitude=(float)SimLon;
 
-	if(debug_hc) printf("Sail_Feedback: %d \n",Sail_Feedback);
+	if(debug2) printf("Sail_Feedback_sim: %d \n",Sail_Feedback);
 	if(debug_hc) printf("v_poly: %f \n",v_poly);
 
 
@@ -1210,7 +1216,6 @@ void simulate_sailing() {
 	if (file != NULL) { fprintf(file, "%d", Sail_Feedback); fclose(file); }
 	file = fopen("/tmp/sailboat/Rudder_Feedback", "w");
 	if (file != NULL) { fprintf(file, "%d", Rudder_Feedback); fclose(file); }
-
 }
 
 
@@ -1458,40 +1463,44 @@ void move_sail(int position) {
 	// Duty cycle observer
 	int n, i;
 	int dutysum=0;
-	int m=60; 	//dtime*SEC;
+	int m=120; 	//dtime*SEC;
 	static int act_history[60]={0};
 	float mm=m;
 
 	float duty=0;
 	for (n=0; n<m; n++) act_history[m-n] = act_history[m-n-1];
 
-	if ( abs(Sail_Feedback-Sail_Desired_Position)>ACT_PRECISION ) { act_history[0] = 1;}
+	if ( abs(Sail_Feedback-position) > ACT_PRECISION) { act_history[0] = 1;}
 	else { act_history[0] = 0;}
 	
 	for (i=0; i<m; i++) {dutysum = dutysum + act_history[i];}
-
-	duty = dutysum / mm;
+	duty = dutysum / mm;	
 	if (duty > MAX_DUTY_CYCLE) actStop=1;
+	else{if (duty <= 0.25) {   actStop=0; } } // When a low duty cycle is reached, the actStop is reset.
 
 	if (actStop==0)
 	{
 		file = fopen("/tmp/sailboat/Navigation_System_Sail", "w");
-		if (file != NULL) { fprintf(file, "%d", position); fclose(file); Sail_Desired_Position=position;}
+		if (file != NULL) { fprintf(file, "%d", position); fclose(file);}// Sail_Desired_Position=position;}
+		if(debug2) printf("move_sail: desACTpos = %d \n", position);
 	}
-	else
-	{
-		if (duty <= 0.1) { actStop=0; } // When a low duty cycle is reached, the actStop is reset.
-	}
+	
 
-	if (debug4) printf("Sail_Feedback - Sail_Des_Pos= abs: %d - %d = %d \n",Sail_Feedback, Sail_Desired_Position, abs(Sail_Feedback-Sail_Desired_Position));	
-	if (debug4) printf("dutysum: %d \n",dutysum);
+	if (debug4) printf("Sail_Feedback - position (of the sail)= abs: %d - %d = %d \n",Sail_Feedback, position, Sail_Feedback-position);	
+	//if (debug4) printf("dutysum: %d \n",dutysum);
 	if (debug4) printf("duty: %f \n",duty);
 	if (debug4) printf("actStop: %d \n",actStop);
 	//if (debug4) printf("** end move sail");
 
 	// Write "duty" to file
-	//file = fopen("/tmp/sailboat/duty", "w");
-	//if (file != NULL) { fprintf(file, "%f", duty); fclose(file); Sail_Desired_Position=position;}
+	file = fopen("/tmp/sailboat/duty", "w");
+	if (file != NULL) { fprintf(file, "%.2f", duty); fclose(file);}
+
+	// read desACTpos
+	int testsailpos=0;
+	file = fopen("/tmp/sailboat/Navigation_System_Sail", "r");
+	if (file != NULL) { fscanf(file, "%d", &testsailpos); fclose(file);}
+	if (debug2) printf("move_sail: testsailpos = %d \n", testsailpos);
 }
 
 
