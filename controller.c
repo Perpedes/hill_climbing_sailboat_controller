@@ -49,7 +49,7 @@
 #define ACT_MAX		870		// [ticks] the max number of actuator ticks
 #define SAIL_LIMIT	150		// [ticks] max tolerated difference between desired and current actuator position
 #define MAX_DUTY_CYCLE 	0.6     	// [%] Datasheet max duty cycle
-#define ACT_PRECISION	10		// [ticks] how close the actuator gets to the Sail_Desired_Position
+#define ACT_PRECISION	20		// [ticks] how close the actuator gets to the Sail_Desired_Position
 
 #define k_sail 		20		// ticks // 
 #define ctime_sail 	5		// seconds //
@@ -220,9 +220,19 @@ int main(int argc, char ** argv) {
 				}
 				rudder_pid_controller();		// Calculate the desired rudder position
 				move_sail(desACTpos);
-					
-				if(hc_sail) sail_hc_controller();			// Execute the sail hillclimbing algorithm
-				else sail_controller();					// Execute the default sail controller
+				
+				switch(sail_state)
+				{
+					case 1:
+						desACTpos = ext_act_pos;
+						break;
+					case 2:
+						sail_hc_controller();			// Execute the sail hillclimbing algorithm
+						break;
+					case 3:
+						sail_controller();			// Execute the default sail controller
+						break;
+				}
 
 				if(Simulation) simulate_sailing();
 
@@ -826,7 +836,7 @@ void 	jibe_pass_fcn() {
 	X_h = -sin(theta_b) + I*cos(theta_b);
 	X_pM = -sin(theta_pM_b) + I*cos(theta_pM_b);
 
-	if (debug5) printf("Sail_Feedback: %d\n",Sail_Feedback);
+	if (debug5) printf("jibe_pass_fcn: Sail_Feedback: %d\n",Sail_Feedback);
 
 	if ( cos(angle_lim) < (creal(X_h)*creal(X_pM) + cimag(X_h)*cimag(X_pM)) && jibe_status<5) // Here 'Sail_Feedback=0' means that the actuator is as short as possible, hence the sail is tight.
 	{	// When the heading approaches the desired heading and the sail is tight, the jibe is performed.
@@ -865,6 +875,7 @@ void 	jibe_pass_fcn() {
 void rudder_pid_controller() {
 
 	float dHeading, pValue, temp_ang; //,integralValue;
+	int des_heading=0;
 	
 	switch (HeadingControl)
 	{
@@ -880,8 +891,10 @@ void rudder_pid_controller() {
 		case 4:
 			dHeading = headstep - Heading;		// Using the step heading algorithm
 			break;
+		case 5:
+			des_heading = ext_des_heading;
+			dHeading = des_heading - Heading;	// Heading straight in a direction
 	}
-
 
 	// Singularity translation
 	dHeading = dHeading*PI/180;
@@ -1029,13 +1042,13 @@ void sail_hc_controller() {
 	if (counter_sail == ctime_sail*SEC - 1)
 	{
 		dv = v_sail-v_old_sail;
-		if (dv >= 0) signv=1;
-		else signv=-1;
+		//if (dv >= 0) signv=1;
+		//else signv=-1;
 		signv = signfcn(dv);
 
 		du = u_sail-u_old_sail;
-		if (du >= 0) signu=1;
-		else signu=-1;
+		//if (du >= 0) signu=1;
+		//else signu=-1;
 		signu = signfcn(du);
 
 		news = signv*signu;
@@ -1463,7 +1476,7 @@ void move_sail(int position) {
 	// Duty cycle observer
 	int n, i;
 	int dutysum=0;
-	int m=120; 	//dtime*SEC;
+	int m=60; 	//dtime*SEC;
 	static int act_history[60]={0};
 	float mm=m;
 
@@ -1495,12 +1508,6 @@ void move_sail(int position) {
 	// Write "duty" to file
 	file = fopen("/tmp/sailboat/duty", "w");
 	if (file != NULL) { fprintf(file, "%.2f", duty); fclose(file);}
-
-	// read desACTpos
-	int testsailpos=0;
-	file = fopen("/tmp/sailboat/Navigation_System_Sail", "r");
-	if (file != NULL) { fscanf(file, "%d", &testsailpos); fclose(file);}
-	if (debug2) printf("move_sail: testsailpos = %d \n", testsailpos);
 }
 
 
