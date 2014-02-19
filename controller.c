@@ -36,8 +36,6 @@
 #define GAIN_P 		-1
 #define GAIN_I 		0
 
-#define meantime	10		// [sec] Duration for mean wind direction
-
 #define BoomLength	1.6 		// [meters] Length of the Boom
 #define SCLength	1.43 		// [meters] horizontal distance between sheet hole and mast
 #define SCHeight	0.6		// [meters] vertical distance between sheet hole and boom.
@@ -72,8 +70,9 @@ float Latitude=0, Longitude=0, COG=0, SOG=0, Wind_Speed=0, Wind_Angle=0;
 float Point_Start_Lat=0, Point_Start_Lon=0, Point_End_Lat=0, Point_End_Lon=0;
 int   Rudder_Desired_Angle=0,   Manual_Control_Rudder=0, Rudder_Feedback=0;
 int   Sail_Desired_Position=0,  Manual_Control_Sail=0,   Sail_Feedback=0, desACTpos=0;
-int   Navigation_System=0, Prev_Navigation_System=0, Manual_Control=0, Simulation=1;
-int   logEntry=0, fa_debug=0, debug=0, debug2=0, debug3=0, debug4=0, debug5=1, debug_hc=0;
+int   Navigation_System=0, Prev_Navigation_System=0, Manual_Control=0, Simulation=0;
+int   logEntry=0, fa_debug=0, debug=0, debug2=0, debug3=0, debug4=0, debug5=1, debug6=0, debug_hc=0;
+int   debug_jibe=1;
 char  logfile1[50],logfile2[50],logfile3[50];
 
 void initfiles();
@@ -90,6 +89,7 @@ void write_log_file();
 int  sign(float val);
 void simulate_sailing();
 void meanwind();
+float power(float number, float eksponent);
 
 struct timespec timermain;
 
@@ -131,7 +131,6 @@ int u_headsl = 180;	// Initialized u_headsl going southwards
 int u_head = 180;
 //int hc_head=0;
 
-// slope heading hill climbing
 
 // Stepheading variable
 int headstep=180;//Wind_Angle+180;		// Initially on downwind course
@@ -188,11 +187,12 @@ int main(int argc, char ** argv) {
 					case 4:					
 						stepheading();
 						break;
+					case 5:
+						break;
 					default:
-						if (debug) printf("heading_state switch case error.");
+						printf("heading_state switch case error.");
 				}
 				rudder_pid_controller();		// Calculate the desired rudder position
-				move_sail(desACTpos);
 				
 				switch(sail_state)
 				{
@@ -203,9 +203,12 @@ int main(int argc, char ** argv) {
 						sail_hc_controller();			// Execute the sail hillclimbing algorithm
 						break;
 					case 3:
+						if (debug_jibe) printf("actIn before sail controller: %d \n", actIn);
 						sail_controller();			// Execute the default sail controller
+						if (debug_jibe) printf("desACTpos after sail controller: %d \n", desACTpos);
 						break;
 				}
+				move_sail(desACTpos);
 
 				if(Simulation) simulate_sailing();
 
@@ -446,7 +449,7 @@ void guidance()
 	X_T_b = ccos(atan2(cimag(X_T),creal(X_T))+theta_wind)*cabs(X_T) + 1*I*(csin(atan2(cimag(X_T),creal(X_T))+theta_wind)*cabs(X_T));
 	X_b = ccos(atan2(cimag(X),creal(X))+theta_wind)*cabs(X) + 1*I*(csin(atan2(cimag(X),creal(X))+theta_wind)*cabs(X));
 	theta_b = theta_wind - theta + PI/2;
-	if (debug) printf("init SIG:[%d]\n",sig);
+	if (debug_jibe) printf("init SIG:[%d]\n",sig);
 
 	if (sig == 0)  
 	{
@@ -467,7 +470,7 @@ void guidance()
         if (sig2 > 0) { performManeuver(); if (debug) printf("performManeuver SIG3:[%d]\n",sig3); }
 	else { sig3 = sig2; }
 
-	if (debug) printf("SIG1: [%d] - SIG2: [%d] - SIG3: [%d] \n",sig1, sig2, sig3);
+	if (debug_jibe) printf("SIG1: [%d] - SIG2: [%d] - SIG3: [%d] \n",sig1, sig2, sig3);
 
 	// Updating the history angle, telling the guidance heading from last iteration
 	theta_d_b = theta_d1_b;
@@ -718,18 +721,16 @@ int signfcn(float in)
 }
 
 
-
 void performManeuver()
 {
 	// float v_b1, v_b2, v_d1_b1, v_d1_b2;
 	float _Complex Xdl, Xdr;
 	fa_debug=7353;
-	// I claim, we don't need this any more! theta_b=atan2(sin(theta_b),cos(theta_b)); // avoiding singularity
 
 	//if (debug) printf("theta_b: %f\n",theta_b);
 	//if (debug) printf("theta_d1_b: %f\n",theta_d1_b);
-	if (sig2==1) if (debug) printf("Jibe left ... ");
-	if (sig2==2) if (debug) printf("Jibe right ... ");
+	if (sig2==1) if (debug) printf("Jibe left ... \n");
+	if (sig2==2) if (debug) printf("Jibe right ... \n");
 
 	// DOWNzone limit direction ***** These variables are already defined in the findAngle-function. ***
         Xdl = -sin(theta_down)*2.8284 - I*cos(theta_down)*2.8284;
@@ -794,7 +795,8 @@ void performManeuver()
 			break;
 	} // end switch(sig2)
 	//if (debug) printf("theta_pM_b = %f \n",theta_pM_b);
-	if (debug) printf("jibe status = %d \n",jibe_status);
+	if (debug_jibe) printf("jibe status = %d \n",jibe_status);
+	if (debug_jibe) printf("actIn = %d \n",actIn);
 	//if (debug) printf("Xdl = %f + I*%f \n",creal(Xdl),cimag(Xdl));
 	//if (debug) printf("Xdr = %f + I*%f \n",creal(Xdr),cimag(Xdr));
 }
@@ -811,26 +813,16 @@ void 	jibe_pass_fcn() {
 
 	//if (debug5) printf("jibe_pass_fcn: Sail_Feedback: %d\n",Sail_Feedback);
 
-	if ( cos(angle_lim) < (creal(X_h)*creal(X_pM) + cimag(X_h)*cimag(X_pM)) && jibe_status<5) // Here 'Sail_Feedback=0' means that the actuator is as short as possible, hence the sail is tight.
+	if ( cos(angle_lim) < (creal(X_h)*creal(X_pM) + cimag(X_h)*cimag(X_pM)) && jibe_status<5) 
 	{	// When the heading approaches the desired heading and the sail is tight, the jibe is performed.
-		if ( actIn==0 )
-		{
-		jibe_status++;
-		}
-		if ( actIn && Sail_Feedback<20 )
-		{
-		jibe_status++;
-		}
+		if ( actIn==0 && Sail_Feedback>300 ) jibe_status++;
+		if ( actIn && Sail_Feedback<20 ) { jibe_status++; }
 	}
-	if (jibe_status==5 && Sail_Feedback>300)
-	{
-	sig3=0;
-	jibe_status=1;
-	}
-	else
-	{
-	sig3=sig2;
-	}
+	
+	if ( jibe_status==5 ) {
+		sig3=0;
+		jibe_status=1; }
+	else { sig3=sig2; }
 	if (debug) printf("X_h = %f + I*%f \n",creal(X_h),cimag(X_h));
 	if (debug) printf("X_pM = %f + I*%f \n",creal(X_pM),cimag(X_pM));
 }
@@ -848,7 +840,6 @@ void 	jibe_pass_fcn() {
 void rudder_pid_controller() {
 
 	float dHeading, pValue, temp_ang; //,integralValue;
-	int des_heading=0;
 	
 	switch (heading_state)
 	{
@@ -869,7 +860,7 @@ void rudder_pid_controller() {
 			break;
 		default:
 			dHeading = Wind_Angle;		// Into the deadzone
-			if (debug) printf("heading_state switch case error.");
+			printf("heading_state switch case error.");
 	}
 
 	// Singularity translation
@@ -1109,7 +1100,11 @@ void heading_hc_controller()
 	}
 	else { counter_head = counter_head + 1; }
 	
-	if (intern_DIR_init != DIR_init) intern_DIR_init = DIR_init; u_head = DIR_init;
+	if (intern_DIR_init != DIR_init) {
+		if (debug5) printf("DIR_init=%d, u_head=%d \n", DIR_init, u_head);
+		intern_DIR_init = DIR_init;
+		u_head = DIR_init;
+		}
 	
 	if(debug_hc && counter_head==0) printf("Heading: %f \n",Heading);
 	if(debug_hc && counter_head==0) printf("v_poly: %f \n",v_poly);
@@ -1130,11 +1125,10 @@ void heading_hc_slope_controller()
 	int news;
 	float du, v_headsl, inthesign;
 	int signu, k_headsl=10;               	// angular steps in degrees
-	int climbtime_headsl = 5;	      	// seconds // Time between the change of u
-	float slope = -0.07114;			// desired slope that indicates the upwind zone border
+	int climbtime_headsl = 5;	      		// seconds // Time between the change of u
+	float slope = -0.07114;					// desired slope that indicates the upwind zone border
 	static float v_old_headsl = 20;
-	static int u_old_headsl = 13, intern_DIR_init;
-	int counter_headsl = 0;
+	static int u_old_headsl = 13, intern_DIR_init, counter_headsl = 0;
 	
 	if (Simulation) v_headsl = v_poly;
 	else v_headsl = SOG;
@@ -1143,22 +1137,28 @@ void heading_hc_slope_controller()
 	slope = des_slope;
 	k_headsl=stepsize;
 
-	if (counter_headsl == climbtime_headsl*SEC - 1)
+	if (counter_headsl >= climbtime_headsl*SEC - 1)
 	{
 		du = u_old_headsl-u_headsl;
 		signu = signfcn(du);
 		
 		inthesign = signu*(v_old_headsl-v_headsl)/k_headsl - slope;
 		news = signfcn(inthesign);
-
-		v_old_headsl = v_headsl;
-		u_old_headsl = u_headsl;		
+		
 		u_headsl = u_headsl + k_headsl*news;
+		if (debug5) printf("k_headsl = %d \n", k_headsl);
+		//if (debug5) printf("news = %d \n", news);
+		//if (debug5) printf("u_headsl = %d \n", u_headsl);	
+		v_old_headsl = v_headsl;
+		u_old_headsl = u_headsl;
 		counter_headsl = 0;
 	}
 	else { counter_headsl = counter_headsl + 1; }
-	
-	if (intern_DIR_init != DIR_init) intern_DIR_init = DIR_init; u_headsl = DIR_init;
+	//if (debug5) printf("counter_headsl = %d \n", counter_headsl);
+	if (intern_DIR_init != DIR_init) {
+		if (debug5) printf("DIR_init=%d, u_headsl=%d \n", DIR_init, u_head);
+		intern_DIR_init = DIR_init;
+		u_headsl = DIR_init; }
 }
 
 
@@ -1176,7 +1176,7 @@ void stepheading()
 	if (stepDIR >= 0) dirsteps = 1;
 	else dirsteps = -1;
 
-	if (counter_stephead==steptime*SEC) { counter_stephead=0; steps++; }
+	if (counter_stephead >= steptime*SEC) { counter_stephead = 0; steps++; }
 	else counter_stephead++;
 
 	if (steps >= 22) { steps=0; if (debug5) printf("Task Completed\n"); }
@@ -1189,16 +1189,27 @@ void stepheading()
  */
 
 void meanwind() {
+	int meantime = 10;			// [sec] Duration for mean wind direction
 	int m = meantime*SEC, n=0;
+	static int a=0;
 	float _Complex V_WIND=0;
 	static float V_angles[40];		//[m+1]; static float?
 
-	for ( n=0; n<m; n++) V_angles[m-n] = V_angles[m-n-1];
-	V_angles[0] = Wind_Angle;
-	//if (debug4) printf("Wind_Angle: %f \n",Wind_Angle);
+	//for ( n=0; n<m; n++) V_angles[m-n] = V_angles[m-n-1];
+	
+	// Using circular buffer to store the wind angles
+	if (a > m-1) a=0;
+	V_angles[a] = Wind_Angle;
+	a++;
+	
+	// summing up a wind vector, containing all stored directions
 	for ( n=0; n<=m; n++) V_WIND = V_WIND + ( sinf(V_angles[n]*PI/180) + I*cosf(V_angles[n]*PI/180) );
 	theta_mean_wind = atan2( creal(V_WIND) , cimag(V_WIND) )*180/PI;
-	//if (debug4) printf("theta mean wind: %f \n",theta_mean_wind);
+	
+	file = fopen("/tmp/sailboat/mean_wind", "w");
+	if (file != NULL) { fprintf(file, "%d", (int)theta_mean_wind); fclose(file); }
+	
+	//if (debug6) printf("theta mean wind: %f \n",theta_mean_wind);
 }
 
 
@@ -1220,7 +1231,21 @@ void simulate_sailing() {
 	else {if(Sail_Feedback < desACTpos_sim)	{ Sail_Feedback+=increment; }}
 
 	// update boat position
-	v_poly = SIM_SOG; //(-((Heading-182)*5.6/360)*((Heading-182)*5.6/360)+SIM_SOG)*(-((Sail_Feedback-182)*5.6/360)*((Sail_Feedback-182)*5.6/360)+SIM_SOG)/8;
+	float head_rad = Heading*PI/180;
+	head_rad = atan2(sin(head_rad),cos(head_rad));	// avoiding singularities
+	if ( head_rad < 0 ) head_rad = 2*PI+head_rad;	// putting on a scale from 0 to 2*PI
+	//if (debug6) printf("3 head_rad = %f \n", head_rad);	// printing to check
+	
+	if ( head_rad > 0 && head_rad < PI ) {
+		v_poly = (-0.0147*power(head_rad,6) + 0.2772*power(head_rad,5) - 2.1294*power(head_rad,4) + 8.5197*power(head_rad,3) - 18.464*power(head_rad,2) + 19.847*head_rad - 3.4774)*1.6/4.7;
+		}
+	else { 	if ( head_rad > PI && head_rad < 2*PI ) {
+			v_poly = (-0.0147*power((2*3.1121-head_rad),6) + 0.2772*power((2*3.1121-head_rad),5) - 2.1294*power((2*3.1121-head_rad),4) + 8.5197*power((2*3.1121-head_rad),3) - 18.464*power((2*3.1121-head_rad),2) + 19.847*(2*3.1121-head_rad) - 3.4774)*1.6/4.7;
+			}
+		else { v_poly=0; }
+		}
+	if (debug6) printf("v_poly = %f \n", v_poly);	// printing to check
+	v_poly = SIM_SOG;
 	double displacement = ((double)v_poly)/SEC;
 	double SimLon= ( (Longitude*CONVLON) + displacement*sinf(Heading*PI/180) )/CONVLON;
 	double SimLat= ( (Latitude*CONVLAT)  + displacement*cosf(Heading*PI/180) )/CONVLAT;
@@ -1258,7 +1283,12 @@ void simulate_sailing() {
 	if (file != NULL) { fprintf(file, "%d", Rudder_Feedback); fclose(file); }
 }
 
-
+float power(float number, float eksponent) {
+	int n;
+	float output=1;
+	for (n=0; n<eksponent; n++) output = output*number;
+	return output;	
+	}
 
 /*
  *	Read data from the Weather Station
@@ -1405,11 +1435,13 @@ void read_target_point() {
 void read_external_variables() {
 
 	// declare temporary variables
-	int tmp_sail_state, tmp_heading_state, tmp_steptime, tmp_stepsize, tmp_des_slope;
+	int tmp_sail_state, tmp_heading_state, tmp_steptime, tmp_stepsize;
+	float tmp_des_slope;
 	int tmp_vLOS, tmp_DIR, tmp_DIR_init, tmp_des_heading, tmp_sail_stepsize, tmp_act_pos;
 	
-	int ext_heading_state, ext_sail_state, ext_steptime, ext_stepsize, ext_des_slope;
-	int ext_vLOS, ext_DIR, ext_DIR_init, ext_des_heading, ext_sail_stepsize, ext_act_pos;
+	static int ext_heading_state, ext_sail_state, ext_steptime, ext_stepsize=10;
+	static float ext_des_slope;
+	static int ext_vLOS, ext_DIR, ext_DIR_init, ext_des_heading, ext_sail_stepsize, ext_act_pos;
 
 	
 	// assign values to temporary values
@@ -1417,7 +1449,6 @@ void read_external_variables() {
 	tmp_heading_state = ext_heading_state;
 	tmp_steptime = ext_steptime;
 	tmp_stepsize = ext_stepsize;
-
 	tmp_des_slope = ext_des_slope;
 	tmp_vLOS = ext_vLOS;
 	tmp_DIR = ext_DIR;
@@ -1436,7 +1467,7 @@ void read_external_variables() {
 	file = fopen("/tmp/sailboat/ext_stepsize", "r");
 	if (file != NULL) { fscanf(file, "%d", &ext_stepsize); fclose(file); }
 	file = fopen("/tmp/sailboat/ext_des_slope", "r");
-	if (file != NULL) { fscanf(file, "%d", &ext_des_slope); fclose(file); }
+	if (file != NULL) { fscanf(file, "%f", &ext_des_slope); fclose(file); }
 	file = fopen("/tmp/sailboat/ext_vLOS", "r");
 	if (file != NULL) { fscanf(file, "%d", &ext_vLOS); fclose(file); }
 	file = fopen("/tmp/sailboat/ext_DIR", "r");
@@ -1471,16 +1502,18 @@ void read_external_variables() {
 
 	if (tmp_des_slope != ext_des_slope) {	
 		des_slope = ext_des_slope; 
-		if(debug5) printf("current des_slope: %d \n", ext_des_slope); }
+		if(debug5) printf("current des_slope: %f \n", ext_des_slope); }
 	if (tmp_vLOS != ext_vLOS) {	
 		vLOS = ext_vLOS; 
 		if(debug5) printf("current vLOS: %d \n", ext_vLOS); }
 	if (tmp_DIR != ext_DIR) {	
 		stepDIR = ext_DIR; 
 		if(debug5) printf("current DIR: %d \n", ext_DIR); }
+	
 	if (tmp_DIR_init != ext_DIR_init) {	
 		DIR_init = ext_DIR_init; 
 		if(debug5) printf("current DIR_init: %d \n", ext_DIR_init); }
+			
 	if (tmp_des_heading != ext_des_heading) {	
 		des_heading = ext_des_heading; 
 		if(debug5) printf("current des_heading: %d \n", ext_des_heading); }
@@ -1506,7 +1539,6 @@ void move_rudder(int angle) {
  *	Write the desired angle to a file [Navigation_System_Sail] to be handled by another process 
  */
 void move_sail(int position) {
-
 
 	// Duty cycle observer
 	int n, i, dutysum=0, m=60; 	//dtime*SEC;
