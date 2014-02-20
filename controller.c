@@ -51,15 +51,10 @@
 
 #define def_ctime_sail 5		// [seconds] initial climbtime/steptime
 
-// Heading Hill Climbing
-
-// Slope Heading Hill Climbing
-
-
 // Simulation constants
 #define SIM_SOG		8		// [meters/seconds] boat speed over ground during simulation
 #define SIM_ROT		5		// [degrees/seconds] rate of turn
-#define SIM_ACT_INC	50		// [millimiters/seconds] sail actuator increment per second
+#define SIM_ACT_INC	160		// [millimiters/seconds] sail actuator increment per second
 
 #include "map_geometry.h"		// custom functions to handle geometry transformations on the map
 
@@ -71,7 +66,7 @@ float Point_Start_Lat=0, Point_Start_Lon=0, Point_End_Lat=0, Point_End_Lon=0;
 int   Rudder_Desired_Angle=0,   Manual_Control_Rudder=0, Rudder_Feedback=0;
 int   Sail_Desired_Position=0,  Manual_Control_Sail=0,   Sail_Feedback=0, desACTpos=0;
 int   Navigation_System=0, Prev_Navigation_System=0, Manual_Control=0, Simulation=0;
-int   logEntry=0, fa_debug=0, debug=0, debug2=0, debug3=0, debug4=0, debug5=1, debug6=0, debug_hc=0;
+int   logEntry=0, fa_debug=0, debug=1, debug2=0, debug3=0, debug4=0, debug5=1, debug6=0, debug_hc=0;
 int   debug_jibe=1;
 char  logfile1[50],logfile2[50],logfile3[50];
 
@@ -107,7 +102,7 @@ int   jibe_status = 1, actIn;
 
 // GUI inputs from "read_external_variables"
 int sail_state=1, heading_state=1;		// variables defining sail tune and heading algorithm state
-int steptime, stepsize, des_slope, vLOS, stepDIR, DIR_init, des_heading, sail_stepsize, act_pos;
+int steptime=30, stepsize=10, des_slope, vLOS, stepDIR, DIR_init, des_heading, sail_stepsize=100, act_pos;
 
 void guidance();
 void findAngle();
@@ -215,25 +210,9 @@ int main(int argc, char ** argv) {
 				// reaching the waypoint
 				if  ( (cabs(X_T - X) < RADIUSACCEPTED) && (Navigation_System==1) )
 				{	
-					if (current_waypoint<nwaypoints-1)
-					{
-						// go to the next waypoint		
-						current_waypoint++;
-						Point_Start_Lon=Waypoints[current_waypoint-1].x;
-						Point_Start_Lat=Waypoints[current_waypoint-1].y;			
-						Point_End_Lon=Waypoints[current_waypoint].x;		
-						Point_End_Lat=Waypoints[current_waypoint].y;
-						file = fopen("/tmp/sailboat/Point_End_Lat", "w");
-						if (file != NULL) { fprintf(file, "%f", Point_End_Lat); fclose(file); }
-						file = fopen("/tmp/sailboat/Point_End_Lon", "w");
-						if (file != NULL) { fprintf(file, "%f", Point_End_Lon); fclose(file); }
-					} 
-					else
-					{
-						// maintain position
-						file = fopen("/tmp/sailboat/Navigation_System", "w");
-						if (file != NULL) { fprintf(file, "3");	fclose(file); }
-					}
+					// switch to maintain position
+					file = fopen("/tmp/sailboat/Navigation_System", "w");
+					if (file != NULL) { fprintf(file, "3");	fclose(file); }
 				}
 			}
 			else
@@ -280,6 +259,9 @@ void initfiles() {
 	system("[ ! -f /tmp/sailboat/Simulation ] 		&& echo 0 > /tmp/sailboat/Simulation");
 	system("[ ! -f /tmp/sailboat/Simulation_Wind ] 		&& echo 0 > /tmp/sailboat/Simulation_Wind");
 	system("[ ! -f /tmp/sailboat/boundaries ] 		&& echo 0 > /tmp/sailboat/boundaries");
+	
+	// Additional GUI input data for Hill Climbing Thesis
+	//system("[ ! -f /tmp/sailboat/boundaries ] 		&& echo 0 > /tmp/sailboat/boundaries");
 
 	system("[ ! -f /tmp/sailboat/override_Guidance_Heading ] && echo -1 > /tmp/sailboat/override_Guidance_Heading");
 }
@@ -340,20 +322,10 @@ void onNavChange() {
 	// START SAILING
 	if(Navigation_System==1) {
 
-		if (Prev_Navigation_System==4) {		// START sailing
+		// read target point from file 
+		read_target_point();
 
-			current_waypoint=0;			
-			Point_End_Lon=Waypoints[0].x;		
-			Point_End_Lat=Waypoints[0].y;
-		}
-		
-		if (Prev_Navigation_System==3) {		// RESUME sailing
-
-			Point_End_Lon   = Waypoints[current_waypoint].x;
-			Point_End_Lat   = Waypoints[current_waypoint].y;
-		}
-
-		Point_Start_Lon=Longitude;			// Update starting point
+		// update starting point
 		Point_Start_Lat=Latitude;
 		Point_Start_Lon=Longitude;
 		file = fopen("/tmp/sailboat/Point_Start_Lat", "w");
@@ -435,7 +407,8 @@ void guidance()
 	Geo_X_T = Point_End_Lon + I*Point_End_Lat;
 	X_T=(Geo_X_T-Geo_X0);
 	X_T=creal(X_T)*CONVLON + I*cimag(X_T)*CONVLAT;
-
+	if (debug) printf("Point_End_Lon: %f \n",Point_End_Lon);
+	if (debug) printf("Point_End_Lat: %f \n",Point_End_Lat);
 
 	// ** turning matrix **
 
@@ -447,6 +420,8 @@ void guidance()
 	// Using theta_wind to transfer X_T. Here theta_wind is expected to be zero
 	// when coming from north, going clockwise in radians.
 	X_T_b = ccos(atan2(cimag(X_T),creal(X_T))+theta_wind)*cabs(X_T) + 1*I*(csin(atan2(cimag(X_T),creal(X_T))+theta_wind)*cabs(X_T));
+	if (debug) printf("X_T_b: %f + I*%f \n",creal(X_T_b),cimag(X_T_b));
+	
 	X_b = ccos(atan2(cimag(X),creal(X))+theta_wind)*cabs(X) + 1*I*(csin(atan2(cimag(X),creal(X))+theta_wind)*cabs(X));
 	theta_b = theta_wind - theta + PI/2;
 	if (debug_jibe) printf("init SIG:[%d]\n",sig);
@@ -475,7 +450,6 @@ void guidance()
 	// Updating the history angle, telling the guidance heading from last iteration
 	theta_d_b = theta_d1_b;
 	sig = sig3;
-	//if (debug) printf("SIG1: [%d] - SIG2: [%d] - SIG3: [%d] \n",sig1, sig2, sig3);
 
 	// Inverse turning matrix
 	theta_d1 = theta_d1_b-theta_wind;
@@ -599,11 +573,13 @@ void findAngle()
 		// 1. Is the LOS in deadzone?
 		// 2. Is the LOS in downzone?
 		// 3. the LOS is outside the zones, go straight.
+		
+		// LOS in dead zone
 		if ( (atan2(cimag(Xr),creal(Xr))-PI/9)<=theta_LOS  &&  theta_LOS<=(atan2(cimag(Xl),creal(Xl))+PI/9) )
 		{
 			if (debug) printf("theta_d_b: %f \n",theta_d_b);
-			if (debug) printf("atan2(Xl): %f \n",atan2(cimag(Xl),creal(Xl)));
-			if (debug) printf("atan2(Xr): %f \n",atan2(cimag(Xr),creal(Xr)));
+			//if (debug) printf("atan2(Xl): %f \n",atan2(cimag(Xl),creal(Xl)));
+			//if (debug) printf("atan2(Xr): %f \n",atan2(cimag(Xr),creal(Xr)));
 
 			if (theta_d_b >= atan2(cimag(Xl),creal(Xl))-PI/36  && theta_d_b <= atan2(cimag(Xl),creal(Xl))+PI/36 )
 			{
@@ -626,11 +602,12 @@ void findAngle()
 		}
 		else
 		{
+			// LOS in down zone
 			if ( atan2(cimag(Xdr),creal(Xdr)) >= theta_LOS  &&  theta_LOS >= atan2(cimag(Xdl),creal(Xdl)) )
 			{
-                                if (debug) printf("theta_d_b: %f \n",theta_d_b);
-				if (debug) printf("atan2 Xdl: %f \n",atan2(cimag(Xdl),creal(Xdl)));
-				if (debug) printf("atan2 Xdr: %f \n",atan2(cimag(Xdr),creal(Xdr)));
+                                //if (debug) printf("theta_d_b: %f \n",theta_d_b);
+				//if (debug) printf("atan2 Xdl: %f \n",atan2(cimag(Xdl),creal(Xdl)));
+				//if (debug) printf("atan2 Xdr: %f \n",atan2(cimag(Xdr),creal(Xdr)));
 
 				if (theta_d_b >= atan2(cimag(Xdl),creal(Xdl))-PI/36  && theta_d_b <= atan2(cimag(Xdl),creal(Xdl))+PI/36 )
 				{
@@ -1006,7 +983,7 @@ void sail_hc_controller() {
 	int signv, signu;
 	int k_sail=20;			// ticks //
 	k_sail = sail_stepsize;
-	int ctime_sail=5;		// seconds //
+	int ctime_sail=30;		// seconds //
 	ctime_sail = steptime;
 	static float v_old_sail=20, u_old_sail=13;
 	static int counter_sail = def_ctime_sail*SEC/2 - 1, u_sail=0, intern_act_pos;
@@ -1073,7 +1050,7 @@ void heading_hc_controller()
 	static int counter_head = 0, u_old_head=13, intern_DIR_init;
 	
 	climbtime_head = steptime;		// using inputs
-	stepsize = k_head;
+	k_head = stepsize;
 	Heading_des = vLOS;
 	//printf("2 We're alright \n");
 	
@@ -1125,7 +1102,7 @@ void heading_hc_slope_controller()
 	int news;
 	float du, v_headsl, inthesign;
 	int signu, k_headsl=10;               	// angular steps in degrees
-	int climbtime_headsl = 5;	      		// seconds // Time between the change of u
+	int climbtime_headsl = 30;	      		// seconds // Time between the change of u
 	float slope = -0.07114;					// desired slope that indicates the upwind zone border
 	static float v_old_headsl = 20;
 	static int u_old_headsl = 13, intern_DIR_init, counter_headsl = 0;
@@ -1245,7 +1222,7 @@ void simulate_sailing() {
 		else { v_poly=0; }
 		}
 	if (debug6) printf("v_poly = %f \n", v_poly);	// printing to check
-	v_poly = SIM_SOG;
+	//v_poly = SIM_SOG;
 	double displacement = ((double)v_poly)/SEC;
 	double SimLon= ( (Longitude*CONVLON) + displacement*sinf(Heading*PI/180) )/CONVLON;
 	double SimLat= ( (Latitude*CONVLAT)  + displacement*cosf(Heading*PI/180) )/CONVLAT;
@@ -1539,7 +1516,7 @@ void move_rudder(int angle) {
  *	Write the desired angle to a file [Navigation_System_Sail] to be handled by another process 
  */
 void move_sail(int position) {
-
+	
 	// Duty cycle observer
 	int n, i, dutysum=0, m=60; 	//dtime*SEC;
 	static int act_history[60]={0}, actStop = 0;
@@ -1548,7 +1525,7 @@ void move_sail(int position) {
 	float duty=0;
 	for (n=0; n<m; n++) act_history[m-n] = act_history[m-n-1];
 
-	if ( abs(Sail_Feedback-position) > ACT_PRECISION) { act_history[0] = 1;}
+	if ( abs(Sail_Feedback-position) > ACT_PRECISION && actStop==0) { act_history[0] = 1;}
 	else { act_history[0] = 0;}
 	
 	for (i=0; i<m; i++) {dutysum = dutysum + act_history[i];}
@@ -1568,7 +1545,7 @@ void move_sail(int position) {
 	//if (debug4) printf("dutysum: %d \n",dutysum);
 	if (debug4) printf("duty: %f \n",duty);
 	if (debug4) printf("actStop: %d \n",actStop);
-	//if (debug4) printf("** end move sail");
+	if (debug4) printf("** end move sail");
 
 	// Write "duty" to file
 	file = fopen("/tmp/sailboat/duty", "w");
