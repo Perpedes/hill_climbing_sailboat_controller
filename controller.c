@@ -66,8 +66,8 @@ float Point_Start_Lat=0, Point_Start_Lon=0, Point_End_Lat=0, Point_End_Lon=0;
 int   Rudder_Desired_Angle=0,   Manual_Control_Rudder=0, Rudder_Feedback=0;
 int   Sail_Desired_Position=0,  Manual_Control_Sail=0,   Sail_Feedback=0, desACTpos=0;
 int   Navigation_System=0, Prev_Navigation_System=0, Manual_Control=0, Simulation=0;
-int   logEntry=0, fa_debug=0, debug=1, debug2=0, debug3=0, debug4=0, debug5=1, debug6=0, debug_hc=0;
-int   debug_jibe=1;
+int   logEntry=0, fa_debug=0, debug=0, debug2=0, debug3=0, debug4=0, debug5=1, debug6=1, debug_hc=0;
+int   debug_jibe=0;
 char  logfile1[50],logfile2[50],logfile3[50];
 
 void initfiles();
@@ -102,7 +102,8 @@ int   jibe_status = 1, actIn;
 
 // GUI inputs from "read_external_variables"
 int sail_state=1, heading_state=1;		// variables defining sail tune and heading algorithm state
-int steptime=30, stepsize=10, des_slope, vLOS, stepDIR, DIR_init, des_heading, sail_stepsize=100, act_pos;
+int steptime=30, stepsize=10, vLOS=0, stepDIR=1, DIR_init=0, des_heading=100, sail_stepsize=100, act_pos=100;
+float des_slope=0.0015;
 
 void guidance();
 void findAngle();
@@ -175,6 +176,7 @@ int main(int argc, char ** argv) {
 						break;
 					case 2:
 						heading_hc_slope_controller();
+						
 						break;
 					case 3:
 						heading_hc_controller();		// Execute the heading hillclimbing algorithm
@@ -261,7 +263,9 @@ void initfiles() {
 	system("[ ! -f /tmp/sailboat/boundaries ] 		&& echo 0 > /tmp/sailboat/boundaries");
 	
 	// Additional GUI input data for Hill Climbing Thesis
-	//system("[ ! -f /tmp/sailboat/boundaries ] 		&& echo 0 > /tmp/sailboat/boundaries");
+	system("[ ! -f /tmp/sailboat/duty ] 			&& echo 0 > /tmp/sailboat/duty");
+	system("[ ! -f /tmp/sailboat/mean_wind ]		&& echo 0 > /tmp/sailboat/mean_wind");
+	system("[ ! -f /tmp/sailboat/Sail_Feedback ]		&& echo 0 > /tmp/sailboat/Sail_Feedback");
 
 	system("[ ! -f /tmp/sailboat/override_Guidance_Heading ] && echo -1 > /tmp/sailboat/override_Guidance_Heading");
 }
@@ -445,7 +449,7 @@ void guidance()
         if (sig2 > 0) { performManeuver(); if (debug) printf("performManeuver SIG3:[%d]\n",sig3); }
 	else { sig3 = sig2; }
 
-	if (debug_jibe) printf("SIG1: [%d] - SIG2: [%d] - SIG3: [%d] \n",sig1, sig2, sig3);
+	if (debug5) printf("SIG1: [%d] - SIG2: [%d] - SIG3: [%d] \n",sig1, sig2, sig3);
 
 	// Updating the history angle, telling the guidance heading from last iteration
 	theta_d_b = theta_d1_b;
@@ -690,10 +694,12 @@ int sign(float val){
  *		Sign function finding pos or neg value
  */
 int signfcn(float in)
-{
+{	
+	//if (debug5) printf("sgnfcn in = %f \n", in);
 	int out;
 	if (in >= 0) { out = 1; }
 	else { out = -1; }
+	//if (debug5) printf("sgnfcn out = %d \n", out);
 	return out;
 }
 
@@ -928,7 +934,7 @@ void sail_controller() {
 	if ( Sail_Desired_Position < 0 )   Sail_Desired_Position=0; 
 
 	// If the boat tilts too much
-	if(fabs(Roll*3.26)>ROLL_LIMIT) // we multiply by 3.26, to transform the input to degrees.
+	if(fabs(Roll)>ROLL_LIMIT) // we multiply by 3.26, to transform the input to degrees.
 	{ 
                 // Start Loosening the sail
 		desACTpos = ACT_MAX;      
@@ -1103,7 +1109,6 @@ void heading_hc_slope_controller()
 	float du, v_headsl, inthesign;
 	int signu, k_headsl=10;               	// angular steps in degrees
 	int climbtime_headsl = 30;	      		// seconds // Time between the change of u
-	float slope = -0.07114;					// desired slope that indicates the upwind zone border
 	static float v_old_headsl = 20;
 	static int u_old_headsl = 13, intern_DIR_init, counter_headsl = 0;
 	
@@ -1111,23 +1116,36 @@ void heading_hc_slope_controller()
 	else v_headsl = SOG;
 	
 	climbtime_headsl = steptime;		// Input equalization
-	slope = des_slope;
 	k_headsl=stepsize;
 
 	if (counter_headsl >= climbtime_headsl*SEC - 1)
-	{
+	{ // Sequence: Calculate the value "news". Update "old" variables. Change u_headsl.
+		//if (debug5) printf("**** Printsession Start **** \n");
 		du = u_old_headsl-u_headsl;
+		//if (debug5) printf("du = %f \n", du);
 		signu = signfcn(du);
-		
-		inthesign = signu*(v_old_headsl-v_headsl)/k_headsl - slope;
+		//if (debug5) printf("signu = %d \n", signu);
+
+				
+		inthesign = signu*(v_old_headsl-v_headsl)/k_headsl - des_slope;
+		//if (debug5) printf("des_slope: %f \n", des_slope);
+		//if (debug5) printf("Results in slope estimate: %f \n", signu*(v_old_headsl-v_headsl)/k_headsl);
+		//if (debug5) printf("inthesign: %f \n", inthesign);
 		news = signfcn(inthesign);
-		
-		u_headsl = u_headsl + k_headsl*news;
-		if (debug5) printf("k_headsl = %d \n", k_headsl);
 		//if (debug5) printf("news = %d \n", news);
-		//if (debug5) printf("u_headsl = %d \n", u_headsl);	
+		
 		v_old_headsl = v_headsl;
 		u_old_headsl = u_headsl;
+			
+		u_headsl = u_headsl + k_headsl*news;
+		
+		//if (debug5) printf("v_old_headsl = %.2f \n", v_old_headsl);
+		//if (debug5) printf("v_headsl = %.2f \n", v_headsl);
+		//if (debug5) printf("u_old_headsl = %d \n", u_old_headsl);
+		//if (debug5) printf("u_headsl = %d \n", u_headsl);
+		//if (debug5) printf("**** Printsession End **** \n");
+		
+		
 		counter_headsl = 0;
 	}
 	else { counter_headsl = counter_headsl + 1; }
@@ -1150,10 +1168,10 @@ void stepheading()
 	static int counter_stephead=0, steps=0;
 	int dirsteps=1;
 	int apparent[23]= {180, 180, 160, 140, 120, 100, 90, 80, 70, 60, 65, 55, 50, 45, 40, 35, 30, 25, 20, 15, 10, 5, 0};
-	if (stepDIR >= 0) dirsteps = 1;
-	else dirsteps = -1;
+	if (stepDIR >= 0) dirsteps = -1;
+	else dirsteps = 1;
 
-	if (counter_stephead >= steptime*SEC) { counter_stephead = 0; steps++; }
+	if (counter_stephead >= steptime*SEC) { counter_stephead = 0; steps++; if (debug6) printf("---\n Heading: %f \n v_poly = %f \n", headstep-theta_mean_wind, v_poly);}
 	else counter_stephead++;
 
 	if (steps >= 22) { steps=0; if (debug5) printf("Task Completed\n"); }
@@ -1177,11 +1195,13 @@ void meanwind() {
 	// Using circular buffer to store the wind angles
 	if (a > m-1) a=0;
 	V_angles[a] = Wind_Angle;
+	//if (debug5) printf("V_angles[%d]=%f \n", a, V_angles[a]);
 	a++;
 	
 	// summing up a wind vector, containing all stored directions
 	for ( n=0; n<=m; n++) V_WIND = V_WIND + ( sinf(V_angles[n]*PI/180) + I*cosf(V_angles[n]*PI/180) );
-	theta_mean_wind = atan2( creal(V_WIND) , cimag(V_WIND) )*180/PI;
+	theta_mean_wind = round( atan2( creal(V_WIND) , cimag(V_WIND) )*180/PI );
+	//if (debug5) printf("theta_mean_wind = %f \n", theta_mean_wind);
 	
 	file = fopen("/tmp/sailboat/mean_wind", "w");
 	if (file != NULL) { fprintf(file, "%d", (int)theta_mean_wind); fclose(file); }
@@ -1208,20 +1228,30 @@ void simulate_sailing() {
 	else {if(Sail_Feedback < desACTpos_sim)	{ Sail_Feedback+=increment; }}
 
 	// update boat position
-	float head_rad = Heading*PI/180;
-	head_rad = atan2(sin(head_rad),cos(head_rad));	// avoiding singularities
-	if ( head_rad < 0 ) head_rad = 2*PI+head_rad;	// putting on a scale from 0 to 2*PI
-	//if (debug6) printf("3 head_rad = %f \n", head_rad);	// printing to check
+	float app_wind = (Heading-Wind_Angle)*PI/180;	// apparent wind direction
+	app_wind = atan2(sin(app_wind),cos(app_wind));	// avoiding singularities
+	if (debug5) printf("2 app_wind = %f \n", app_wind*180/PI);	// printing to check
+	app_wind = fabs(app_wind);
+	//if ( app_wind < 0 ) app_wind = 2*PI+app_wind;	// putting on a scale from 0 to 2*PI
+	if (debug5) printf("3 app_wind = %f \n", app_wind*180/PI);	// printing to check
+		
+	if ( app_wind > 0.22 && app_wind < PI ) {
+		v_poly = (-0.0147*power(app_wind,6) + 0.2772*power(app_wind,5) - 2.1294*power(app_wind,4) + 8.5197*power(app_wind,3) - 18.464*power(app_wind,2) + 19.847*app_wind - 3.4774)*1.6/4.7;
+		}
+	else { 	/*if ( app_wind > PI && app_wind < 6.06 ) {
+			v_poly = (-0.0147*power((2*3.1121-app_wind),6) + 0.2772*power((2*3.1121-app_wind),5) - 2.1294*power((2*3.1121-app_wind),4) + 8.5197*power((2*3.1121-app_wind),3) - 18.464*power((2*3.1121-app_wind),2) + 19.847*(2*3.1121-app_wind) - 3.4774)*1.6/4.7;
+			} else {*/
+		v_poly=0;
+		}
 	
-	if ( head_rad > 0 && head_rad < PI ) {
-		v_poly = (-0.0147*power(head_rad,6) + 0.2772*power(head_rad,5) - 2.1294*power(head_rad,4) + 8.5197*power(head_rad,3) - 18.464*power(head_rad,2) + 19.847*head_rad - 3.4774)*1.6/4.7;
+	/*if ( app_wind > 0.22 && app_wind < 6.09 ) {
+		v_poly = (-0.0147*power(app_wind,6) + 0.2772*power(app_wind,5) - 2.1294*power(app_wind,4) + 8.5197*power(app_wind,3) - 18.464*power(app_wind,2) + 19.847*app_wind - 3.4774)*1.6/4.7;
 		}
-	else { 	if ( head_rad > PI && head_rad < 2*PI ) {
-			v_poly = (-0.0147*power((2*3.1121-head_rad),6) + 0.2772*power((2*3.1121-head_rad),5) - 2.1294*power((2*3.1121-head_rad),4) + 8.5197*power((2*3.1121-head_rad),3) - 18.464*power((2*3.1121-head_rad),2) + 19.847*(2*3.1121-head_rad) - 3.4774)*1.6/4.7;
-			}
-		else { v_poly=0; }
-		}
-	if (debug6) printf("v_poly = %f \n", v_poly);	// printing to check
+	else {v_poly=0;} */
+
+	// Adding sail position dependence (which isn't totally correct, but makes things work ;-] )
+	v_poly = v_poly - 0.000005285*power(Sail_Feedback,2) + 0.0045983*Sail_Feedback;
+	if (debug5) printf("v_poly = %f \n", v_poly);	// printing to check
 	//v_poly = SIM_SOG;
 	double displacement = ((double)v_poly)/SEC;
 	double SimLon= ( (Longitude*CONVLON) + displacement*sinf(Heading*PI/180) )/CONVLON;
@@ -1308,6 +1338,7 @@ void read_weather_station() {
 	file = fopen("/tmp/u200/Roll", "r");
 	if (file != NULL) {
 		fscanf(file, "%f", &Roll);	fclose(file);
+		Roll = Roll*3.26;
 	}
 
 	//GPS_DATA
@@ -1416,7 +1447,7 @@ void read_external_variables() {
 	float tmp_des_slope;
 	int tmp_vLOS, tmp_DIR, tmp_DIR_init, tmp_des_heading, tmp_sail_stepsize, tmp_act_pos;
 	
-	static int ext_heading_state, ext_sail_state, ext_steptime, ext_stepsize=10;
+	static int ext_heading_state, ext_sail_state, ext_steptime, ext_stepsize;
 	static float ext_des_slope;
 	static int ext_vLOS, ext_DIR, ext_DIR_init, ext_des_heading, ext_sail_stepsize, ext_act_pos;
 
