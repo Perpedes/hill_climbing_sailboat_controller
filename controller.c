@@ -1151,7 +1151,7 @@ void heading_hc_slope_controller()
 	else { counter_headsl = counter_headsl + 1; }
 	//if (debug5) printf("counter_headsl = %d \n", counter_headsl);
 	if (intern_DIR_init != DIR_init) {
-		if (debug5) printf("DIR_init=%d, u_headsl=%d \n", DIR_init, u_head);
+		if (debug5) printf("DIR_init=%d, u_headsl=%d \n", DIR_init, u_headsl);
 		intern_DIR_init = DIR_init;
 		u_headsl = DIR_init; }
 }
@@ -1613,7 +1613,7 @@ void write_log_file() {
 	struct tm  *timeinfo;
 	struct dirent * entry;
 
-	// crate a new file every MAXLOGLINES
+	// create a new file every MAXLOGLINES
 	if(logEntry==0 || logEntry>=MAXLOGLINES) {
 
 		// pin pointer
@@ -1643,12 +1643,16 @@ void write_log_file() {
 		// log filename
 		sprintf(logfile1,"sailboat-log/logfile_%.4d_%s",file_count,timestp);
 		sprintf(logfile2,"sailboat-log/debug/debug_%.4d_%s",file_count,timestp);
+		sprintf(logfile3,"sailboat-log/thesis/thesis_%.4d_%s",file_count,timestp);
 
 		// write HEADERS in log files
 		file2 = fopen(logfile1, "w");
 		if (file2 != NULL) { fprintf(file2, "MCU_timestamp,Navigation_System,Manual_Control,Guidance_Heading,Manual_Ctrl_Rudder,Rudder_Desired_Angle,Rudder_Feedback,Manual_Ctrl_Sail,Sail_Desired_Pos,Sail_Feedback,Rate,Heading,Pitch,Roll,Latitude,Longitude,COG,SOG,Wind_Speed,Wind_Angle,Point_Start_Lat,Point_Start_Lon,Point_End_Lat,Point_End_Lon\n"); fclose(file2); }
 		file2 = fopen(logfile2, "w");
 		if (file2 != NULL) { fprintf(file2, "MCU_timestamp,sig1,sig2,sig3,fa_debug,theta_d1,theta_d,theta_d1_b,theta_b,a_x,b_x,X_b,X_T_b,sail_hc_periods,sail_hc_direction,sail_hc_val,sail_hc_MEAN_V,act_history,jibe_status\n"); fclose(file2); }
+		file2 = fopen(logfile3, "w");
+		if (file2 != NULL) { fprintf(file2, "MCU_timestamp,heading_state,sail_state,steptime,stepsize,vLOS,stepDIR,DIR_init,des_heading,sail_stepsize,act_pos,des_slope,Wind_Angle,Wind_Speed,SOG,Heading,Roll,theta_mean_wind,u_headsl,u_head,headstep,desACTpos,Sail_Feedback\n"); fclose(file2); }
+		
 		
 		logEntry=1;
 	}
@@ -1709,6 +1713,37 @@ void write_log_file() {
 	);
 	// write to DEBUG file
 	file2 = fopen(logfile2, "a");
+	if (file2 != NULL) { fprintf(file2, "%s\n", logline); fclose(file2); }
+	
+	
+	// generate csv THESIS file
+	sprintf(logline, "%u,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%f,%f,%f,%f,%f,%f,%f,%d,%d,%d,%d,%d" \
+		, (unsigned)time(NULL) \
+		, heading_state \
+		, sail_state \
+		, steptime \
+		, stepsize \
+		, vLOS \
+		, stepDIR \
+		, DIR_init \
+		, des_heading \
+		, sail_stepsize \
+		, act_pos \
+		, des_slope \
+		, Wind_Angle \
+		, Wind_Speed \
+		, SOG \
+		, Heading \		
+		, Roll \
+		, theta_mean_wind \
+		, u_headsl \
+		, u_head \
+		, headstep \
+		, desACTpos \
+		, Sail_Feedback \		
+	);
+	// write to THESIS file
+	file2 = fopen(logfile3, "a");
 	if (file2 != NULL) { fprintf(file2, "%s\n", logline); fclose(file2); }
 	
 
