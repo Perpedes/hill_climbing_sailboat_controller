@@ -1722,7 +1722,7 @@ void write_log_file() {
 
 
 	// generate csv LOG line
-	sprintf(logline, "%u,%d,%d,%.1f,%d,%d,%d,%d,%d,%d,%.4f,%.4f,%.4f,%.4f,%f,%f,%.1f,%.3f,%.2f,%.2f,%f,%f,%f,%f" \
+	sprintf(logline, "%u,%d,%d,%.1f,%d, %d,%d,%d,%d,%d, %.4f,%.4f,%.4f,%.4f,%f ,%f,%.1f,%.3f,%.2f,%.2f, %f,%f,%f,%f" \
 		, (unsigned)time(NULL) \
 		, Navigation_System \
 		, Manual_Control \
@@ -1776,27 +1776,31 @@ void write_log_file() {
 	
 	
 	// generate csv THESIS file
-	sprintf(logline, "%u,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%f,%.1f,%.3f,%.3f,%.2f,%.3f,%.3f,%d,%d,%d,%d,%d" \
+	sprintf(logline, "%u,%d,%d,%d,%d, %d,%d,%d,%d,%d, %d,%d,%d,%f,%.2f, %.3f,%.3f,%.2f,%.3f,%.3f, %d,%d,%d,%d,%d" \
 		, (unsigned)time(NULL) \
 		, Navigation_System \
 		, Manual_Control \
 		, heading_state \
 		, sail_state \
+		
 		, steptime \
 		, stepsize \
 		, vLOS \
 		, stepDIR \
 		, DIR_init \
+		
 		, des_heading \
 		, sail_stepsize \
 		, act_pos \
 		, des_slope \
 		, Wind_Angle \
+		
 		, Wind_Speed \
 		, SOG \
 		, Heading \
 		, Roll \
 		, theta_mean_wind \
+		
 		, u_headsl \
 		, u_head \
 		, headstep \
