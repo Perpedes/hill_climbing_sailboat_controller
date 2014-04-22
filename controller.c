@@ -64,7 +64,7 @@ float Point_Start_Lat=0, Point_Start_Lon=0, Point_End_Lat=0, Point_End_Lon=0;
 int   Rudder_Desired_Angle=0,   Manual_Control_Rudder=0, Rudder_Feedback=0;
 int   Sail_Desired_Position=0,  Manual_Control_Sail=0,   Sail_Feedback=0, desACTpos=0;
 int   Navigation_System=0, Prev_Navigation_System=0, Manual_Control=0, Simulation=0;
-int   logEntry=0, fa_debug=0, debug=0, debug2=0, debug3=0, debug4=0, debug5=1, debug6=1, debug_hc=0;
+int   logEntry=0, fa_debug=0, debug=0, debug2=0, debug3=0, debug4=0, debug5=0, debug6=0, debug_hc=0;
 int   debug_jibe=0;
 char  logfile1[50],logfile2[50],logfile3[50];
 
@@ -124,6 +124,10 @@ int signfcn(float);
 // heading hill climbing
 float v_poly=0;	// Simulation variable, defining the velocity using a polynome.
 float heel_sim=0;
+float ctri_heel=0;
+float ctri_headsl=0;
+float ctri_head=0;
+float ctri_sail=0;
 int u_headsl = 180;	// Initialized u_headsl going southwards
 int u_head = 180;
 int u_heel = 180;
@@ -1027,6 +1031,7 @@ void sail_hc_controller() {
 		signu = signfcn(du);
 
 		news = signv*signu;
+		ctri_sail = v_sail;		// global variable 'control input', saved.
 		v_old_sail = v_sail;
 		u_old_sail = u_sail;
 		u_sail = u_sail + k_sail*news;
@@ -1072,7 +1077,7 @@ void heading_hc_controller()
 	//printf("2 We're alright \n");
 	
 	
-	if (Simulation) v_head = v_poly*cosf((Heading-Heading_des)*PI/180);		// Velocity in desired direction
+	if (Simulation) v_head = v_poly*cosf((Heading-Heading_des)*PI/180);		// Velocity Made Good
 	else v_head = SOG*cosf((Heading-Heading_des)*PI/180);
 	
 	
@@ -1085,6 +1090,7 @@ void heading_hc_controller()
 		signu = signfcn(du);
 
 		news = signv*signu;
+		ctri_head = v_head;		// global variable 'control input', saved.
 		v_old_head = v_head;
 		u_old_head = u_head;
 		u_head = u_head + k_head*news;
@@ -1136,6 +1142,7 @@ void heading_hc_slope_controller()
 		news = signfcn(inthesign);
 		//if (debug5) printf("news = %d \n", news);
 		
+		ctri_headsl = v_headsl;		// global variable 'control input', saved.
 		v_old_headsl = v_headsl;
 		u_old_headsl = u_headsl;
 			
@@ -1181,16 +1188,18 @@ void heading_hc_heeling_controller()
 	// taking the mean of the heeling vector
 	heeling=0;
 	for ( n=0; n<m; n++) heeling = heeling + V_heeling[n];
-	heeling = heeling/m;			// mean heeling value	
+	heeling = heeling/m;			// mean heeling value
 	if (debug6) printf("mean heeling: %f [rad] \n", heeling);
 	
 	if (counter == 0)
 	{
+
 		dh = heeling - heel_old;
 		signh = signfcn(dh);
 		du = u_heel-u_old;
 		signu = signfcn(du);
 
+		ctri_heel = heeling;		// global variable 'control input', saved.
 		heel_old = heeling;
 		u_old = u_heel;
 		u_heel = u_heel + stepsize*signh*signu;
@@ -1710,8 +1719,7 @@ void write_log_file() {
 		file2 = fopen(logfile2, "w");
 		if (file2 != NULL) { fprintf(file2, "MCU_timestamp,sig1,sig2,sig3,fa_debug,theta_d1,theta_d,theta_d1_b,theta_b,a_x,b_x,X_b,X_T_b,sail_hc_periods,sail_hc_direction,sail_hc_val,sail_hc_MEAN_V,act_history,jibe_status\n"); fclose(file2); }
 		file2 = fopen(logfile3, "w");
-		if (file2 != NULL) { fprintf(file2, "MCU_timestamp,heading_state,sail_state,steptime,stepsize,vLOS,stepDIR,DIR_init,des_heading,sail_stepsize,act_pos,des_slope,Wind_Angle,Wind_Speed,SOG,Heading,Roll,theta_mean_wind,u_headsl,u_head,headstep,desACTpos,Sail_Feedback\n"); fclose(file2); }
-		
+		if (file2 != NULL) { fprintf(file2, "MCU_timestamp,Navigation_System,Manual_Control,heading_state,sail_state,steptime,stepsize,vLOS,stepDIR,DIR_init,des_heading,sail_stepsize,act_pos,des_slope,Wind_Angle,Wind_Speed,SOG,Heading,Roll,theta_mean_wind,u_headsl,u_head,u_heel,headstep,desACTpos,Sail_Feedback\n"); fclose(file2); }
 		
 		logEntry=1;
 	}
@@ -1776,7 +1784,7 @@ void write_log_file() {
 	
 	
 	// generate csv THESIS file
-	sprintf(logline, "%u,%d,%d,%d,%d, %d,%d,%d,%d,%d, %d,%d,%d,%f,%.2f, %.3f,%.3f,%.2f,%.3f,%.3f, %d,%d,%d,%d,%d" \
+	sprintf(logline, "%u,%d,%d,%d,%d, %d,%d,%d,%d,%d, %d,%d,%d,%f,%.2f, %.3f,%.3f,%.2f,%.3f,%.3f, %f,%f,%f,%f, %d,%d,%d,%d,%d,%d" \
 		, (unsigned)time(NULL) \
 		, Navigation_System \
 		, Manual_Control \
@@ -1801,11 +1809,18 @@ void write_log_file() {
 		, Roll \
 		, theta_mean_wind \
 		
+		, ctri_sail \
+		, ctri_headsl \
+		, ctri_head \
+		, ctri_heel \
+		
 		, u_headsl \
 		, u_head \
+		, u_heel \
 		, headstep \
 		, desACTpos \
 		, Sail_Feedback \
+		
 	);
 	// write to THESIS file
 	file2 = fopen(logfile3, "a");
