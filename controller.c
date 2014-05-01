@@ -101,7 +101,7 @@ int   jibe_status = 1, actIn;
 
 // GUI inputs from "read_external_variables"
 int sail_state=1, heading_state=1;		// variables defining sail tune and heading algorithm state
-int steptime=30, stepsize=10, vLOS=0, stepDIR=1, DIR_init=0, des_heading=100, sail_stepsize=100, act_pos=100;
+int steptime=30, stepsize=10, vLOS=0, stepDIR=1, DIR_init=0, des_heading=100, sail_stepsize=5, sail_pos=0;
 float des_slope=0.0015;
 
 void guidance();
@@ -128,6 +128,7 @@ float ctri_heel=0;
 float ctri_headsl=0;
 float ctri_head=0;
 float ctri_sail=0;
+int u_sail=0;		// u_sail=0 is equal to a sail angle close to zero.
 int u_headsl = 180;	// Initialized u_headsl going southwards
 int u_head = 180;
 int u_heel = 180;
@@ -197,14 +198,14 @@ int main(int argc, char ** argv) {
 						heading_hc_heeling_controller();
 						break;
 					default:
-						printf("heading_state switch case error.");
+						if(debug) printf("heading_state switch case error.");
 				}
 				rudder_pid_controller();		// Calculate the desired rudder position
 				
 				switch(sail_state)
 				{
 					case 1:
-						desACTpos = act_pos;
+						desACTpos = ACT_MAX/strokelength/2*(sqrt( SCLength*SCLength + BoomLength*BoomLength - 2*SCLength*BoomLength*cos(sail_pos*PI/180) + SCHeight*SCHeight)-sqrt( SCLength*SCLength + BoomLength*BoomLength -2*SCLength*BoomLength*cos(0) + SCHeight*SCHeight));
 						break;
 					case 2:
 						sail_hc_controller();			// Execute the sail hillclimbing algorithm
@@ -277,6 +278,7 @@ void initfiles() {
 	system("[ ! -f /tmp/sailboat/duty ] 			&& echo 0 > /tmp/sailboat/duty");
 	system("[ ! -f /tmp/sailboat/mean_wind ]		&& echo 0 > /tmp/sailboat/mean_wind");
 	system("[ ! -f /tmp/sailboat/Sail_Feedback ]		&& echo 0 > /tmp/sailboat/Sail_Feedback");
+	system("[ ! -f /tmp/sailboat/u_sail ]		&& echo 0 > /tmp/sailboat/u_sail");
 
 	system("[ ! -f /tmp/sailboat/override_Guidance_Heading ] && echo -1 > /tmp/sailboat/override_Guidance_Heading");
 }
@@ -852,7 +854,7 @@ void rudder_pid_controller() {
 	dHeading = atan2(sin(dHeading),cos(dHeading));
 	dHeading = dHeading*180/PI;        
 
-	if (debug) printf("dHeading: %f\n",dHeading);
+	//if (debug) printf("dHeading: %f\n",dHeading);
 
 	//if (debug) fprintf(stdout,"targetHeafing: %f, deltaHeading: %f\n",targetHeading, dHeading);
 	//if (abs(dHeading) > dHEADING_MAX && abs(Rate) > RATEOFTURN_MAX) // Limit control statement
@@ -1008,21 +1010,37 @@ void countFCN()
 void sail_hc_controller() {
 
 	int news;
-	float dv, du, v_sail;
+	float dv, du;
 	int signv, signu;
-	int k_sail=20;			// ticks //
+	int k_sail=5;			// stepsize in degrees //
 	k_sail = sail_stepsize;
-	static float v_old_sail=20, u_old_sail=13;
-	static int u_sail=0, intern_act_pos;
+	static float v_sail, v_old_sail=20, u_old_sail=13;
+	static int intern_sail_pos;
+	int Heading_des = 0;
+	Heading_des = vLOS;
 	
-	if (Simulation) v_sail = v_poly;
-	else v_sail = SOG;
+	// Getting the correct control input
+	if (sail_state == 2 && heading_state == 3 && counter == 0)
+	{	
+		if (Simulation) v_sail = v_poly*cosf((Heading-Heading_des)*PI/180);		// Velocity Made Good
+		else v_sail = SOG*cosf((Heading-Heading_des)*PI/180);
+		
+		if (debug) printf("Update Sail. 	v_sail=%f \n", v_sail);
+	}
+	else{if ( heading_state != 3 )
+	{
+		if (debug) printf("Single mode SAIL. \n");
+		if (Simulation) v_sail = v_poly;
+		else v_sail = SOG;
+	}}
+		
 
 	if (counter == steptime*SEC/2 - 1)
 	{
 		dv = v_sail-v_old_sail;
 		//if (dv >= 0) signv=1;
 		//else signv=-1;
+		if (debug) printf("Control: 	v_sail=%f \n", v_sail);
 		signv = signfcn(dv);
 
 		du = u_sail-u_old_sail;
@@ -1035,13 +1053,18 @@ void sail_hc_controller() {
 		v_old_sail = v_sail;
 		u_old_sail = u_sail;
 		u_sail = u_sail + k_sail*news;
-		desACTpos = u_sail;
+		if (u_sail < 0) u_sail=u_old_sail + k_sail;
+		if (u_sail > 90) u_sail=u_old_sail - k_sail;
+		desACTpos = ACT_MAX/strokelength/2*(sqrt( SCLength*SCLength + BoomLength*BoomLength -2*SCLength*BoomLength*cos(u_sail*PI/180) + SCHeight*SCHeight)-sqrt( SCLength*SCLength + BoomLength*BoomLength -2*SCLength*BoomLength*cos(0) + SCHeight*SCHeight));
+		
+		file = fopen("/tmp/sailboat/u_sail", "w");
+		if (file != NULL) { fprintf(file, "%d", (int)u_sail); fclose(file); }
 	}
 	
-	if (act_pos != intern_act_pos) {
-		intern_act_pos = act_pos; 	// When the input changes, all variables are updated
-		u_sail = act_pos; 		// to the new input value. Here intern_act_pos is used
-		desACTpos = act_pos;		// to track input changes.
+	if (sail_pos != intern_sail_pos) {
+		intern_sail_pos = sail_pos; 	// When the input changes, all variables are updated
+		u_sail = sail_pos; 		// to the new input value. Here intern_sail_pos is used
+		desACTpos = ACT_MAX/strokelength/2*(sqrt( SCLength*SCLength + BoomLength*BoomLength -2*SCLength*BoomLength*cos(sail_pos*PI/180) + SCHeight*SCHeight)-sqrt( SCLength*SCLength + BoomLength*BoomLength -2*SCLength*BoomLength*cos(0) + SCHeight*SCHeight));				// to track input changes.
 		}
 	
 	/*if(debug_hc && counter_sail==0) printf("---- Sail Hill Climbing ----\n");
@@ -1065,8 +1088,8 @@ void sail_hc_controller() {
 void heading_hc_controller() 
 {	
 	int news;
-	float dv, du, v_head;
-	static float v_old_head=20;
+	float dv, du;
+	static float v_head, v_old_head=20;
 	int signv, signu;
 	int k_head = 10;            		// angular steps in degrees
 	int Heading_des = 0;			// degrees // desired heading
@@ -1077,13 +1100,26 @@ void heading_hc_controller()
 	//printf("2 We're alright \n");
 	
 	
-	if (Simulation) v_head = v_poly*cosf((Heading-Heading_des)*PI/180);		// Velocity Made Good
-	else v_head = SOG*cosf((Heading-Heading_des)*PI/180);
 	
+	// Getting the correct control input
+	if (sail_state == 2 && heading_state == 3 && counter == steptime*SEC/2 - 1)
+	{	
+		if (Simulation) v_head = v_poly*cosf((Heading-Heading_des)*PI/180);		// Velocity Made Good
+		else v_head = SOG*cosf((Heading-Heading_des)*PI/180);
+		
+		if (debug) printf("Update VMG Heading. 			v_head=%f \n", v_head);
+	}
+	else{if ( sail_state != 2 )
+	{
+		if (debug) printf("Single mode VMG. \n");
+		if (Simulation) v_head = v_poly*cosf((Heading-Heading_des)*PI/180);		// Velocity Made Good
+		else v_head = SOG*cosf((Heading-Heading_des)*PI/180);
+	}}
 	
 	if (counter == 0) {
 		//if (debug5) printf("2 We're alright \n");
 		dv = v_head-v_old_head;
+		if (debug) printf("Control: 				v_head=%f \n", v_head);
 		signv = signfcn(dv);
 
 		du = u_head-u_old_head;
@@ -1513,11 +1549,11 @@ void read_external_variables() {
 	// declare temporary variables
 	int tmp_sail_state, tmp_heading_state, tmp_steptime, tmp_stepsize;
 	float tmp_des_slope;
-	int tmp_vLOS, tmp_DIR, tmp_DIR_init, tmp_des_heading, tmp_sail_stepsize, tmp_act_pos;
+	int tmp_vLOS, tmp_DIR, tmp_DIR_init, tmp_des_heading, tmp_sail_stepsize, tmp_sail_pos;
 	
 	static int ext_heading_state, ext_sail_state, ext_steptime, ext_stepsize;
 	static float ext_des_slope;
-	static int ext_vLOS, ext_DIR, ext_DIR_init, ext_des_heading, ext_sail_stepsize, ext_act_pos;
+	static int ext_vLOS, ext_DIR, ext_DIR_init, ext_des_heading, ext_sail_stepsize, ext_sail_pos;
 
 	
 	// assign values to temporary values
@@ -1531,7 +1567,7 @@ void read_external_variables() {
 	tmp_DIR_init = ext_DIR_init;
 	tmp_des_heading = ext_des_heading;
 	tmp_sail_stepsize = ext_sail_stepsize;
-	tmp_act_pos = ext_act_pos;
+	tmp_sail_pos = ext_sail_pos;
 
 	// read from files
 	file = fopen("/tmp/sailboat/ext_sail_state", "r");
@@ -1554,8 +1590,8 @@ void read_external_variables() {
 	if (file != NULL) { fscanf(file, "%d", &ext_des_heading); fclose(file); }
 	file = fopen("/tmp/sailboat/ext_sail_stepsize", "r");
 	if (file != NULL) { fscanf(file, "%d", &ext_sail_stepsize); fclose(file); }
-	file = fopen("/tmp/sailboat/ext_act_pos", "r");
-	if (file != NULL) { fscanf(file, "%d", &ext_act_pos); fclose(file); }
+	file = fopen("/tmp/sailboat/ext_sail_pos", "r");
+	if (file != NULL) { fscanf(file, "%d", &ext_sail_pos); fclose(file); }
 
 
 	
@@ -1596,9 +1632,9 @@ void read_external_variables() {
 	if (tmp_sail_stepsize != ext_sail_stepsize) {	
 		sail_stepsize = ext_sail_stepsize; 
 		if(debug5) printf("current sail_stepsize: %d \n", ext_sail_stepsize); }
-	if (tmp_act_pos != ext_act_pos) {	
-		act_pos = ext_act_pos; 
-		if(debug5) printf("current act_pos: %d \n", ext_act_pos); }
+	if (tmp_sail_pos != ext_sail_pos) {	
+		sail_pos = ext_sail_pos; 
+		if(debug5) printf("current sail_pos: %d \n", ext_sail_pos); }
 }
 
 /*
@@ -1719,7 +1755,7 @@ void write_log_file() {
 		file2 = fopen(logfile2, "w");
 		if (file2 != NULL) { fprintf(file2, "MCU_timestamp,sig1,sig2,sig3,fa_debug,theta_d1,theta_d,theta_d1_b,theta_b,a_x,b_x,X_b,X_T_b,sail_hc_periods,sail_hc_direction,sail_hc_val,sail_hc_MEAN_V,act_history,jibe_status\n"); fclose(file2); }
 		file2 = fopen(logfile3, "w");
-		if (file2 != NULL) { fprintf(file2, "MCU_timestamp,Navigation_System,Manual_Control,heading_state,sail_state,steptime,stepsize,vLOS,stepDIR,DIR_init,des_heading,sail_stepsize,act_pos,des_slope,Wind_Angle,Wind_Speed,SOG,Heading,Roll,theta_mean_wind,u_headsl,u_head,u_heel,headstep,desACTpos,Sail_Feedback\n"); fclose(file2); }
+		if (file2 != NULL) { fprintf(file2, "MCU_timestamp,Navigation_System,Manual_Control,heading_state,sail_state,steptime,stepsize,vLOS,stepDIR,DIR_init,des_heading,sail_stepsize,sail_pos,des_slope,Wind_Angle,Wind_Speed,SOG,Heading,Roll,theta_mean_wind,ctri_sail,ctri_headsl,ctri_head,ctri_heel,u_sail,u_headsl,u_head,u_heel,headstep,desACTpos,Sail_Feedback\n"); fclose(file2); }
 		
 		logEntry=1;
 	}
@@ -1784,7 +1820,7 @@ void write_log_file() {
 	
 	
 	// generate csv THESIS file
-	sprintf(logline, "%u,%d,%d,%d,%d, %d,%d,%d,%d,%d, %d,%d,%d,%f,%.2f, %.3f,%.3f,%.2f,%.3f,%.3f, %f,%f,%f,%f, %d,%d,%d,%d,%d,%d" \
+	sprintf(logline, "%u,%d,%d,%d,%d, %d,%d,%d,%d,%d, %d,%d,%d,%f,%.2f, %.3f,%.3f,%.2f,%.3f,%.3f, %f,%f,%f,%f, %d,%d,%d,%d,%d,%d,%d" \
 		, (unsigned)time(NULL) \
 		, Navigation_System \
 		, Manual_Control \
@@ -1799,7 +1835,7 @@ void write_log_file() {
 		
 		, des_heading \
 		, sail_stepsize \
-		, act_pos \
+		, sail_pos \
 		, des_slope \
 		, Wind_Angle \
 		
@@ -1814,6 +1850,7 @@ void write_log_file() {
 		, ctri_head \
 		, ctri_heel \
 		
+		, u_sail \
 		, u_headsl \
 		, u_head \
 		, u_heel \
