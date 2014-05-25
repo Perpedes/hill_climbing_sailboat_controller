@@ -64,7 +64,7 @@ float Point_Start_Lat=0, Point_Start_Lon=0, Point_End_Lat=0, Point_End_Lon=0;
 int   Rudder_Desired_Angle=0,   Manual_Control_Rudder=0, Rudder_Feedback=0;
 int   Sail_Desired_Position=0,  Manual_Control_Sail=0,   Sail_Feedback=0, desACTpos=0;
 int   Navigation_System=0, Prev_Navigation_System=0, Manual_Control=0, Simulation=0;
-int   logEntry=0, fa_debug=0, debug=0, debug2=0, debug3=0, debug4=0, debug5=0, debug6=0, debug_hc=0;
+int   logEntry=0, fa_debug=0, debug=1, debug2=0, debug3=0, debug4=0, debug5=0, debug6=0, debug_hc=0;
 int   debug_jibe=0;
 char  logfile1[50],logfile2[50],logfile3[50];
 
@@ -1014,27 +1014,61 @@ void sail_hc_controller() {
 	int signv, signu;
 	int k_sail=5;			// stepsize in degrees //
 	k_sail = sail_stepsize;
-	static float v_sail, v_old_sail=20, u_old_sail=13;
+	static float v_mean, v_sail, v_old_sail=20, u_old_sail=13;
 	static int intern_sail_pos;
 	int Heading_des = 0;
 	Heading_des = vLOS;
+	static float V_vmg[120];
+	int m = steptime/2*SEC, n=0;
+	static int a=0;
 	
-	// Getting the correct control input
+// CALCULATE MEAN VELOCITY by: using a circular buffer to store the velocities
+	if (a > m-1) a=0;
+	if (sail_state == 2 && (heading_state == 3 || heading_state == 6) )
+	{
+		if (Simulation) V_vmg[a] = v_poly*cosf((Heading-Heading_des)*PI/180);
+		else V_vmg[a] = SOG*cosf((Heading-Heading_des)*PI/180);
+		
+		//if (debug) printf("Combined run. \n");
+	}
+	else
+	{
+		if (Simulation) V_vmg[a] = v_poly;
+		else V_vmg[a] = SOG;
+	}
+	a++;
+	if (debug) printf("Velocity Made Good		vmg: %f [m/s] \n", v_poly*cosf((Heading-Heading_des)*PI/180));
+	// and taking the mean of the velocity vector
+	if (counter == steptime*SEC/2 - 1 || counter == 0)
+	{
+		v_mean=0;
+		for ( n=0; n<m; n++) v_mean = v_mean + V_vmg[n];
+		v_mean = v_mean/(m);			// mean velocity value
+		if (debug) printf("MEAN CALC	v_mean: %f [m/s] \n", v_mean);
+	}
+	
+//  ****************************************************************************
+
+	
+// GETTING THE CORRECT CONTROL INPUT
 	if (sail_state == 2 && heading_state == 3 && counter == 0)
 	{	
-		if (Simulation) v_sail = v_poly*cosf((Heading-Heading_des)*PI/180);		// Velocity Made Good
-		else v_sail = SOG*cosf((Heading-Heading_des)*PI/180);
+		v_sail = v_mean;
 		
 		if (debug) printf("Update Sail. 	v_sail=%f \n", v_sail);
 	}
 	else{if ( heading_state != 3 )
 	{
-		if (debug) printf("Single mode SAIL. \n");
 		if (Simulation) v_sail = v_poly;
 		else v_sail = SOG;
-	}}
-		
 
+		//if (debug) printf("Single mode SAIL. \n");
+	}}
+	
+//  ****************************************************************************
+		
+		
+// USING HILL-CLIMBING METHOD
 	if (counter == steptime*SEC/2 - 1)
 	{
 		dv = v_sail-v_old_sail;
@@ -1060,6 +1094,9 @@ void sail_hc_controller() {
 		file = fopen("/tmp/sailboat/u_sail", "w");
 		if (file != NULL) { fprintf(file, "%d", (int)u_sail); fclose(file); }
 	}
+	
+//  ****************************************************************************
+
 	
 	if (sail_pos != intern_sail_pos) {
 		intern_sail_pos = sail_pos; 	// When the input changes, all variables are updated
@@ -1088,34 +1125,54 @@ void sail_hc_controller() {
 void heading_hc_controller() 
 {	
 	int news;
-	float dv, du;
+	float dv, du, v_mean=0;
 	static float v_head, v_old_head=20;
 	int signv, signu;
 	int k_head = 10;            		// angular steps in degrees
 	int Heading_des = 0;			// degrees // desired heading
 	static int u_old_head=13, intern_DIR_init;
+	static float V_vmg[120];
+	int m = steptime/2*SEC, n=0;
+	static int a=0;
 	
 	k_head = stepsize;
 	Heading_des = vLOS;
-	//printf("2 We're alright \n");
 	
+// CALCULATE MEAN VELOCITY by: using a circular buffer to store the velocities
+	if (a > m-1) a=0;
+	if (Simulation) V_vmg[a] = v_poly*cosf((Heading-Heading_des)*PI/180);
+	else V_vmg[a] = SOG*cosf((Heading-Heading_des)*PI/180);
+	a++;
+	if (debug) printf("Velocity Made Good				vmg: %f [m/s] \n", v_poly*cosf((Heading-Heading_des)*PI/180));
+	// and taking the mean of the velocity vector
+	if (counter == steptime*SEC/2 - 1 || counter == 0)
+	{
+		v_mean=0;
+		for ( n=0; n<m; n++) v_mean = v_mean + V_vmg[n];
+		v_mean = v_mean/(m);			// mean velocity value
+		if (debug) printf("MEAN CALC				v_mean: %f [m/s] \n", v_mean);
+	}
 	
+//  ****************************************************************************
+
+
 	
-	// Getting the correct control input
+// GETTING THE CORRECT CONTROL INPUT
 	if (sail_state == 2 && heading_state == 3 && counter == steptime*SEC/2 - 1)
 	{	
-		if (Simulation) v_head = v_poly*cosf((Heading-Heading_des)*PI/180);		// Velocity Made Good
-		else v_head = SOG*cosf((Heading-Heading_des)*PI/180);
+		v_head = v_mean;
 		
 		if (debug) printf("Update VMG Heading. 			v_head=%f \n", v_head);
 	}
-	else{if ( sail_state != 2 )
+	else{if ( sail_state != 2 && counter == 0)
 	{
-		if (debug) printf("Single mode VMG. \n");
-		if (Simulation) v_head = v_poly*cosf((Heading-Heading_des)*PI/180);		// Velocity Made Good
-		else v_head = SOG*cosf((Heading-Heading_des)*PI/180);
+		//if (debug) printf("Single mode VMG. \n");
+		v_head = v_mean;
 	}}
 	
+//  ****************************************************************************
+	
+// USING HILL-CLIMBING METHOD
 	if (counter == 0) {
 		//if (debug5) printf("2 We're alright \n");
 		dv = v_head-v_old_head;
@@ -1131,6 +1188,8 @@ void heading_hc_controller()
 		u_old_head = u_head;
 		u_head = u_head + k_head*news;
 	}
+
+//  ****************************************************************************
 	
 	if (intern_DIR_init != DIR_init) {
 		if (debug5) printf("DIR_init=%d, u_head=%d \n", DIR_init, u_head);
