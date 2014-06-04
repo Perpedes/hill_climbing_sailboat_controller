@@ -822,32 +822,37 @@ void 	jibe_pass_fcn() {
  */
 void rudder_pid_controller() {
 
-	float dHeading, pValue, temp_ang; //,integralValue;
+	float dHeading, pValue, temp_ang, deshead; //,integralValue;
 	
 	switch (heading_state)
 	{
 		case 1:
-			dHeading = Guidance_Heading - Heading; 	// in degrees
+			deshead = Guidance_Heading; 	// in degrees
 			break;
 		case 2:
-			dHeading = u_headsl - Heading;		// Steering after hill climbing controller
+			deshead = u_headsl;		// Steering after hill climbing controller
 			break;
 		case 3:
-			dHeading = u_head - Heading; 		// Steering after hill climbing controller
+			deshead = u_head; 		// Steering after hill climbing controller
 			break;
 		case 4:
-			dHeading = headstep - Heading;		// Using the step heading algorithm
+			deshead = headstep;		// Using the step heading algorithm
 			break;
 		case 5:
-			dHeading = des_heading - Heading;	// Heading straight in a direction
+			deshead = des_heading;	// Heading straight in a direction
 			break;
 		case 6:
-			dHeading = u_heel - Heading;
+			deshead = u_heel;
 			break;
 		default:
-			dHeading = Wind_Angle;		// Into the deadzone
+			deshead = Wind_Angle;		// Into the deadzone
 			if (debug5) printf("heading_state switch case error.");
 	}
+	
+	dHeading = deshead-Heading;
+	deshead = acos(cos(deshead*PI/180))*180/PI;
+	file = fopen("/tmp/sailboat/des_course", "w");
+	if (file != NULL) { fprintf(file, "%d", (int)deshead); fclose(file); }
 
 	// Singularity translation
 	dHeading = dHeading*PI/180;
