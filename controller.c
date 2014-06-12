@@ -64,9 +64,9 @@ float Point_Start_Lat=0, Point_Start_Lon=0, Point_End_Lat=0, Point_End_Lon=0;
 int   Rudder_Desired_Angle=0,   Manual_Control_Rudder=0, Rudder_Feedback=0;
 int   Sail_Desired_Position=0,  Manual_Control_Sail=0,   Sail_Feedback=0, desACTpos=0;
 int   Navigation_System=0, Prev_Navigation_System=0, Manual_Control=0, Simulation=0;
-int   logEntry=0, fa_debug=0, debug=1, debug2=0, debug3=0, debug4=0, debug5=0, debug6=0, debug_hc=0;
+int   logEntry=0, fa_debug=0, debug=0, debug2=0, debug3=0, debug4=0, debug5=0, debug6=0, debug_hc=0;
 int   debug_jibe=0;
-char  logfile1[50],logfile2[50],logfile3[50];
+char  logfile1[50],logfile3[50];  //logfile2[50],
 
 void initfiles();
 void check_navigation_system();
@@ -101,7 +101,7 @@ int   jibe_status = 1, actIn;
 
 // GUI inputs from "read_external_variables"
 int sail_state=1, heading_state=1;		// variables defining sail tune and heading algorithm state
-int steptime=30, stepsize=10, vLOS=0, stepDIR=1, DIR_init=0, des_heading=100, sail_stepsize=5, sail_pos=0;
+int steptime=30, stepsize=10, vLOS=0, stepDIR=1, DIR_init=0, des_heading=100, des_app_w=100, sail_stepsize=5, sail_pos=0;
 float des_slope=0.0015;
 
 void guidance();
@@ -842,6 +842,9 @@ void rudder_pid_controller() {
 			deshead = des_heading;	// Heading straight in a direction
 			break;
 		case 6:
+			deshead = theta_mean_wind + des_app_w;
+			break;
+		case 7:
 			deshead = u_heel;
 			break;
 		default:
@@ -1613,11 +1616,11 @@ void read_external_variables() {
 	// declare temporary variables
 	int tmp_sail_state, tmp_heading_state, tmp_steptime, tmp_stepsize;
 	float tmp_des_slope;
-	int tmp_vLOS, tmp_DIR, tmp_DIR_init, tmp_des_heading, tmp_sail_stepsize, tmp_sail_pos;
+	int tmp_vLOS, tmp_DIR, tmp_DIR_init, tmp_des_heading, tmp_sail_stepsize, tmp_sail_pos, tmp_des_app_w;
 	
 	static int ext_heading_state, ext_sail_state, ext_steptime, ext_stepsize;
 	static float ext_des_slope;
-	static int ext_vLOS, ext_DIR, ext_DIR_init, ext_des_heading, ext_sail_stepsize, ext_sail_pos;
+	static int ext_vLOS, ext_DIR, ext_DIR_init, ext_des_heading, ext_sail_stepsize, ext_sail_pos, ext_des_app_w;
 
 	
 	// assign values to temporary values
@@ -1630,6 +1633,7 @@ void read_external_variables() {
 	tmp_DIR = ext_DIR;
 	tmp_DIR_init = ext_DIR_init;
 	tmp_des_heading = ext_des_heading;
+	tmp_des_app_w = ext_des_app_w;
 	tmp_sail_stepsize = ext_sail_stepsize;
 	tmp_sail_pos = ext_sail_pos;
 
@@ -1652,6 +1656,8 @@ void read_external_variables() {
 	if (file != NULL) { fscanf(file, "%d", &ext_DIR_init); fclose(file); }
 	file = fopen("/tmp/sailboat/ext_des_heading", "r");
 	if (file != NULL) { fscanf(file, "%d", &ext_des_heading); fclose(file); }
+	file = fopen("/tmp/sailboat/ext_des_app_w", "r");
+	if (file != NULL) { fscanf(file, "%d", &ext_des_app_w); fclose(file); }
 	file = fopen("/tmp/sailboat/ext_sail_stepsize", "r");
 	if (file != NULL) { fscanf(file, "%d", &ext_sail_stepsize); fclose(file); }
 	file = fopen("/tmp/sailboat/ext_sail_pos", "r");
@@ -1693,6 +1699,9 @@ void read_external_variables() {
 	if (tmp_des_heading != ext_des_heading) {	
 		des_heading = ext_des_heading; 
 		if(debug5) printf("current des_heading: %d \n", ext_des_heading); }
+	if (tmp_des_app_w != ext_des_app_w) {	
+		des_app_w = ext_des_app_w; 
+		if(debug5) printf("current des_app_w: %d \n", ext_des_app_w); }
 	if (tmp_sail_stepsize != ext_sail_stepsize) {	
 		sail_stepsize = ext_sail_stepsize; 
 		if(debug5) printf("current sail_stepsize: %d \n", ext_sail_stepsize); }
@@ -1810,16 +1819,16 @@ void write_log_file() {
 		
 		// log filename
 		sprintf(logfile1,"sailboat-log/logfile_%.4d_%s",file_count,timestp);
-		sprintf(logfile2,"sailboat-log/debug/debug_%.4d_%s",file_count,timestp);
+		//sprintf(logfile2,"sailboat-log/debug/debug_%.4d_%s",file_count,timestp);
 		sprintf(logfile3,"sailboat-log/thesis/thesis_%.4d_%s",file_count,timestp);
 
 		// write HEADERS in log files
 		file2 = fopen(logfile1, "w");
 		if (file2 != NULL) { fprintf(file2, "MCU_timestamp,Navigation_System,Manual_Control,Guidance_Heading,Manual_Ctrl_Rudder,Rudder_Desired_Angle,Rudder_Feedback,Manual_Ctrl_Sail,Sail_Desired_Pos,Sail_Feedback,Rate,Heading,Pitch,Roll,Latitude,Longitude,COG,SOG,Wind_Speed,Wind_Angle,Point_Start_Lat,Point_Start_Lon,Point_End_Lat,Point_End_Lon\n"); fclose(file2); }
-		file2 = fopen(logfile2, "w");
-		if (file2 != NULL) { fprintf(file2, "MCU_timestamp,sig1,sig2,sig3,fa_debug,theta_d1,theta_d,theta_d1_b,theta_b,a_x,b_x,X_b,X_T_b,sail_hc_periods,sail_hc_direction,sail_hc_val,sail_hc_MEAN_V,act_history,jibe_status\n"); fclose(file2); }
+		//file2 = fopen(logfile2, "w");
+		//if (file2 != NULL) { fprintf(file2, "MCU_timestamp,sig1,sig2,sig3,fa_debug,theta_d1,theta_d,theta_d1_b,theta_b,a_x,b_x,X_b,X_T_b,sail_hc_periods,sail_hc_direction,sail_hc_val,sail_hc_MEAN_V,act_history,jibe_status\n"); fclose(file2); }
 		file2 = fopen(logfile3, "w");
-		if (file2 != NULL) { fprintf(file2, "MCU_timestamp,Navigation_System,Manual_Control,heading_state,sail_state,steptime,stepsize,vLOS,stepDIR,DIR_init,des_heading,sail_stepsize,sail_pos,des_slope,Wind_Angle,Wind_Speed,SOG,Heading,Roll,theta_mean_wind,ctri_sail,ctri_headsl,ctri_head,ctri_heel,u_sail,u_headsl,u_head,u_heel,headstep,desACTpos,Sail_Feedback\n"); fclose(file2); }
+		if (file2 != NULL) { fprintf(file2, "MCU_timestamp,Navigation_System,Manual_Control,heading_state,sail_state,steptime,stepsize,vLOS,stepDIR,DIR_init,des_app_w,des_heading,sail_stepsize,sail_pos,des_slope,Wind_Angle,Wind_Speed,SOG,Heading,Roll,theta_mean_wind,ctri_sail,ctri_headsl,ctri_head,ctri_heel,u_sail,u_headsl,u_head,u_heel,headstep,desACTpos,Sail_Feedback\n"); fclose(file2); }
 		
 		logEntry=1;
 	}
@@ -1862,7 +1871,7 @@ void write_log_file() {
 
 
 	// generate csv DEBUG line
-	sprintf(logline, "%u,%d,%d,%d,%d,%f,%f,%f,%f,%f,%f,%f_%fi,%f_%fi,%d" \
+	/* sprintf(logline, "%u,%d,%d,%d,%d,%f,%f,%f,%f,%f,%f,%f_%fi,%f_%fi,%d" \
 		, (unsigned)time(NULL) \
 		, sig1 \
 		, sig2 \
@@ -1877,14 +1886,14 @@ void write_log_file() {
 		, creal(X_T), cimag(X_T) \
 		, creal(X_T_b), cimag(X_T_b) \
 		, jibe_status \
-	);
+	); */
 	// write to DEBUG file
-	file2 = fopen(logfile2, "a");
-	if (file2 != NULL) { fprintf(file2, "%s\n", logline); fclose(file2); }
+	//file2 = fopen(logfile2, "a");
+	//if (file2 != NULL) { fprintf(file2, "%s\n", logline); fclose(file2); }
 	
 	
 	// generate csv THESIS file
-	sprintf(logline, "%u,%d,%d,%d,%d, %d,%d,%d,%d,%d, %d,%d,%d,%f,%.2f, %.3f,%.3f,%.2f,%.3f,%.3f, %f,%f,%f,%f, %d,%d,%d,%d,%d,%d,%d" \
+	sprintf(logline, "%u,%d,%d,%d,%d, %d,%d,%d,%d,%d, %d,%d,%d,%d,%f,%.2f, %.3f,%.3f,%.2f,%.3f,%.3f, %f,%f,%f,%f, %d,%d,%d,%d,%d,%d,%d" \
 		, (unsigned)time(NULL) \
 		, Navigation_System \
 		, Manual_Control \
@@ -1897,6 +1906,7 @@ void write_log_file() {
 		, stepDIR \
 		, DIR_init \
 		
+		, des_app_w \
 		, des_heading \
 		, sail_stepsize \
 		, sail_pos \
